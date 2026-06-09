@@ -18,9 +18,10 @@ build/
 dist/
 *.spec
 
-# ── Logs y DB locales ──
+# ── Logs, DB y backups locales ──
 *.log
 *.db
+backups/
 
 # ── IDE ──
 .vscode/

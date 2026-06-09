@@ -4,7 +4,7 @@ GestiónPro v2.0 Comercial
 Sistema de gestión para cualquier tipo de negocio.
 SQLite · Inventario · POS · Caja · Informes · Excel · Gráficos
 """
-import sqlite3, hashlib, hmac, json, logging, random, os, sys
+import sqlite3, hashlib, hmac, json, logging, random, os, sys, zipfile, glob
 from datetime import datetime, date, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -600,6 +600,294 @@ def make_tree(parent, cols, hdrs, widths, height=None):
     sb.pack(side="right", fill="y", pady=5, padx=(0,4))
     tree.pack(fill="both", expand=True, padx=5, pady=5)
     return tree
+
+
+# ═══════════════════════════════════════════════════════════════
+# WIZARD DE PRIMER ARRANQUE
+# ═══════════════════════════════════════════════════════════════
+class SetupWizard(ctk.CTk):
+    """Asistente de configuración inicial — se muestra solo la primera vez."""
+
+    BUSINESS_TYPES = [
+        "Tienda General", "Minimercado", "Papelería", "Ferretería",
+        "Droguería", "Restaurante", "Cafetería", "Panadería",
+        "Licorería", "Tienda de Ropa", "Tienda de Tecnología",
+        "Veterinaria", "Peluquería", "Otro",
+    ]
+    CURRENCIES = [
+        ("$", "COP — Peso colombiano"),
+        ("$", "USD — Dólar americano"),
+        ("€", "EUR — Euro"),
+        ("S/", "PEN — Sol peruano"),
+        ("$", "MXN — Peso mexicano"),
+        ("Bs", "VES — Bolívar"),
+    ]
+
+    def __init__(self, db: DB):
+        super().__init__()
+        self.db = db
+        self.completed = False
+        self._step = 0
+        self.title("GestiónPro — Configuración Inicial")
+        w, h = _sc(560), _sc(520)
+        self.geometry(f"{w}x{h}")
+        self.resizable(False, False)
+        self.configure(fg_color=BG)
+        self._data = {
+            "business_name": "", "business_type": self.BUSINESS_TYPES[0],
+            "currency_symbol": "$", "currency_code": "COP",
+            "address": "", "phone": "", "tax_percent": "0",
+            "admin_user": "admin", "admin_pass": "",
+        }
+        self._frames: list[ctk.CTkFrame] = []
+        self._build()
+
+    # ── Barra de pasos ────────────────────────────────────────
+    def _build(self):
+        self._top = ctk.CTkFrame(self, fg_color=SIDEBAR, height=_sc(62), corner_radius=0)
+        self._top.pack(fill="x")
+        self._top.pack_propagate(False)
+        self._step_labels: list[ctk.CTkLabel] = []
+        steps = ["Bienvenida", "Negocio", "Moneda", "Admin", "¡Listo!"]
+        row = ctk.CTkFrame(self._top, fg_color="transparent")
+        row.pack(expand=True)
+        for i, name in enumerate(steps):
+            lbl = ctk.CTkLabel(row, text=f"  {i+1}. {name}  ",
+                               font=("Segoe UI", _sc(10)),
+                               text_color=DIM, corner_radius=_sc(6))
+            lbl.pack(side="left", padx=_sc(3), pady=_sc(16))
+            self._step_labels.append(lbl)
+
+        self._body = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        self._body.pack(fill="both", expand=True)
+
+        self._build_step0()
+        self._build_step1()
+        self._build_step2()
+        self._build_step3()
+        self._build_step4()
+        self._show_step(0)
+
+    def _show_step(self, idx):
+        self._step = idx
+        for f in self._frames:
+            f.pack_forget()
+        self._frames[idx].pack(fill="both", expand=True, padx=_sc(40), pady=_sc(20))
+        for i, lbl in enumerate(self._step_labels):
+            if i == idx:
+                lbl.configure(text_color=TEXT, fg_color=ACC)
+            elif i < idx:
+                lbl.configure(text_color=OK, fg_color="transparent")
+            else:
+                lbl.configure(text_color=DIM, fg_color="transparent")
+
+    def _nav_bar(self, parent, back=True, next_text="Siguiente  →", cmd_next=None):
+        """Barra inferior con botones Atrás / Siguiente."""
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
+        bar.pack(side="bottom", fill="x", pady=(_sc(10), 0))
+        if back:
+            W_btn(bar, "←  Atrás", lambda: self._show_step(self._step - 1),
+                  color="#333", w=120, h=38).pack(side="left")
+        W_btn(bar, next_text, cmd_next or (lambda: self._show_step(self._step + 1)),
+              w=180, h=38).pack(side="right")
+
+    # ── Paso 0: Bienvenida ────────────────────────────────────
+    def _build_step0(self):
+        f = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._frames.append(f)
+        W_label(f, "🏪", size=48).pack(pady=(_sc(30), _sc(8)))
+        W_label(f, "¡Bienvenido a GestiónPro!", size=22, bold=True, color=ACC).pack()
+        W_label(f, "Sistema de gestión para tu negocio", size=12, color=DIM).pack(pady=(_sc(4), _sc(20)))
+        msg = ("Vamos a configurar tu negocio en unos pocos pasos.\n"
+               "Solo tomará un minuto y podrás cambiar\n"
+               "todo después desde Configuración.")
+        W_label(f, msg, size=11, color=TEXT).pack(pady=_sc(8))
+        self._nav_bar(f, back=False, next_text="Comenzar  →")
+
+    # ── Paso 1: Nombre y tipo de negocio ──────────────────────
+    def _build_step1(self):
+        f = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._frames.append(f)
+        W_label(f, "📋  Tu Negocio", size=18, bold=True, color=ACC).pack(anchor="w")
+        W_label(f, "¿Cómo se llama tu negocio?", size=10, color=DIM).pack(anchor="w", pady=(_sc(16), _sc(4)))
+        self._e_name = W_entry(f, "Ej: Tienda La Esquina", w=440)
+        self._e_name.pack(anchor="w")
+
+        W_label(f, "Tipo de negocio", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        self._cb_type = W_combo(f, self.BUSINESS_TYPES, w=440)
+        self._cb_type.set(self.BUSINESS_TYPES[0])
+        self._cb_type.pack(anchor="w")
+
+        W_label(f, "Dirección (opcional)", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        self._e_addr = W_entry(f, "Ej: Calle 10 #25-30", w=440)
+        self._e_addr.pack(anchor="w")
+
+        W_label(f, "Teléfono / Contacto (opcional)", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        self._e_phone = W_entry(f, "Ej: 300 123 4567", w=440)
+        self._e_phone.pack(anchor="w")
+
+        self._l_err1 = W_label(f, "", color=ERR, size=10)
+        self._l_err1.pack(pady=(_sc(6), 0))
+
+        def _next1():
+            name = self._e_name.get().strip()
+            if not name:
+                self._l_err1.configure(text="El nombre del negocio es obligatorio")
+                return
+            self._l_err1.configure(text="")
+            self._data["business_name"] = name
+            self._data["business_type"] = self._cb_type.get()
+            self._data["address"] = self._e_addr.get().strip()
+            self._data["phone"] = self._e_phone.get().strip()
+            self._show_step(2)
+
+        self._nav_bar(f, back=True, cmd_next=_next1)
+
+    # ── Paso 2: Moneda e impuesto ─────────────────────────────
+    def _build_step2(self):
+        f = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._frames.append(f)
+        W_label(f, "💲  Moneda e Impuestos", size=18, bold=True, color=ACC).pack(anchor="w")
+
+        W_label(f, "Moneda", size=10, color=DIM).pack(anchor="w", pady=(_sc(16), _sc(4)))
+        currency_names = [c[1] for c in self.CURRENCIES]
+        self._cb_currency = W_combo(f, currency_names, w=440)
+        self._cb_currency.set(currency_names[0])
+        self._cb_currency.pack(anchor="w")
+
+        W_label(f, "Impuesto sobre ventas (%)", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        W_label(f, "Pon 0 si no aplica impuesto", size=9, color=DIM).pack(anchor="w")
+        self._e_tax = W_entry(f, "0", w=200)
+        self._e_tax.insert(0, "0")
+        self._e_tax.pack(anchor="w", pady=(_sc(4), 0))
+
+        W_label(f, "Stock mínimo por defecto", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        W_label(f, "Alerta cuando un producto baje de esta cantidad", size=9, color=DIM).pack(anchor="w")
+        self._e_stock = W_entry(f, "5", w=200)
+        self._e_stock.insert(0, "5")
+        self._e_stock.pack(anchor="w", pady=(_sc(4), 0))
+
+        self._l_err2 = W_label(f, "", color=ERR, size=10)
+        self._l_err2.pack(pady=(_sc(6), 0))
+
+        def _next2():
+            try:
+                tax = float(self._e_tax.get().strip())
+                stock_min = int(self._e_stock.get().strip())
+                if tax < 0 or stock_min < 0:
+                    raise ValueError
+            except ValueError:
+                self._l_err2.configure(text="Valores numéricos inválidos")
+                return
+            self._l_err2.configure(text="")
+            # Buscar símbolo y código de la moneda seleccionada
+            sel = self._cb_currency.get()
+            for sym, label in self.CURRENCIES:
+                if label == sel:
+                    self._data["currency_symbol"] = sym
+                    self._data["currency_code"] = label[:3]
+                    break
+            self._data["tax_percent"] = str(int(tax)) if tax == int(tax) else str(tax)
+            self._data["low_stock_limit"] = str(stock_min)
+            self._show_step(3)
+
+        self._nav_bar(f, back=True, cmd_next=_next2)
+
+    # ── Paso 3: Contraseña del admin ──────────────────────────
+    def _build_step3(self):
+        f = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._frames.append(f)
+        W_label(f, "🔐  Contraseña del Administrador", size=18, bold=True, color=ACC).pack(anchor="w")
+        W_label(f, "El usuario administrador será:", size=10, color=DIM).pack(anchor="w", pady=(_sc(16), _sc(2)))
+
+        W_label(f, "Usuario", size=10, color=DIM).pack(anchor="w", pady=(_sc(8), _sc(4)))
+        self._e_admin_user = W_entry(f, "admin", w=440)
+        self._e_admin_user.insert(0, "admin")
+        self._e_admin_user.pack(anchor="w")
+
+        W_label(f, "Nueva contraseña", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        self._e_pass1 = W_entry(f, "••••••••", w=440, pw=True)
+        self._e_pass1.pack(anchor="w")
+
+        W_label(f, "Confirmar contraseña", size=10, color=DIM).pack(anchor="w", pady=(_sc(14), _sc(4)))
+        self._e_pass2 = W_entry(f, "••••••••", w=440, pw=True)
+        self._e_pass2.pack(anchor="w")
+
+        self._l_err3 = W_label(f, "", color=ERR, size=10)
+        self._l_err3.pack(pady=(_sc(6), 0))
+
+        def _next3():
+            user = self._e_admin_user.get().strip().lower()
+            p1 = self._e_pass1.get()
+            p2 = self._e_pass2.get()
+            if not user:
+                self._l_err3.configure(text="El nombre de usuario es obligatorio")
+                return
+            if len(p1) < 4:
+                self._l_err3.configure(text="La contraseña debe tener al menos 4 caracteres")
+                return
+            if p1 != p2:
+                self._l_err3.configure(text="Las contraseñas no coinciden")
+                return
+            self._l_err3.configure(text="")
+            self._data["admin_user"] = user
+            self._data["admin_pass"] = p1
+            # Actualizar el resumen en paso 4
+            self._update_summary()
+            self._show_step(4)
+
+        self._nav_bar(f, back=True, cmd_next=_next3)
+
+    # ── Paso 4: Confirmación ──────────────────────────────────
+    def _build_step4(self):
+        f = ctk.CTkFrame(self._body, fg_color="transparent")
+        self._frames.append(f)
+        W_label(f, "✅  ¡Todo listo!", size=22, bold=True, color=OK).pack(pady=(_sc(10), _sc(12)))
+        W_label(f, "Revisa la configuración de tu negocio:", size=11, color=DIM).pack()
+        self._summary_card = W_card(f)
+        self._summary_card.pack(fill="x", pady=_sc(14))
+        # Se llenará dinámicamente
+        self._summary_labels: list[ctk.CTkLabel] = []
+        self._nav_bar(f, back=True, next_text="🚀  Iniciar GestiónPro", cmd_next=self._finish)
+
+    def _update_summary(self):
+        for w in self._summary_card.winfo_children():
+            w.destroy()
+        items = [
+            ("Negocio", self._data["business_name"]),
+            ("Tipo", self._data["business_type"]),
+            ("Moneda", f"{self._data['currency_symbol']}  ({self._data['currency_code']})"),
+            ("Impuesto", f"{self._data['tax_percent']}%"),
+            ("Dirección", self._data["address"] or "—"),
+            ("Teléfono", self._data["phone"] or "—"),
+            ("Admin", self._data["admin_user"]),
+        ]
+        for label, value in items:
+            row = ctk.CTkFrame(self._summary_card, fg_color="transparent")
+            row.pack(fill="x", padx=_sc(20), pady=_sc(4))
+            W_label(row, label, size=10, color=DIM).pack(side="left")
+            W_label(row, value, size=10, bold=True, color=TEXT).pack(side="right")
+
+    def _finish(self):
+        d = self._data
+        # Guardar toda la configuración
+        for key in ["business_name", "business_type", "currency_symbol",
+                     "currency_code", "address", "phone", "tax_percent"]:
+            self.db.set_cfg(key, d[key])
+        if "low_stock_limit" in d:
+            self.db.set_cfg("low_stock_limit", d["low_stock_limit"])
+        # Actualizar usuario admin
+        admin = self.db.one("SELECT * FROM users WHERE username='admin'")
+        if admin:
+            self.db.run("UPDATE users SET username=?, password=?, role='admin' WHERE id=?",
+                        (d["admin_user"], self.db._hp(d["admin_pass"]), admin["id"]))
+        else:
+            self.db.add_user(d["admin_user"], d["admin_pass"], "admin")
+        # Marcar wizard como completado
+        self.db.set_cfg("wizard_done", "1")
+        log.info(f"Wizard completado — Negocio: {d['business_name']}")
+        self.completed = True
+        self.destroy()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1816,6 +2104,40 @@ class ConfigPanel(BasePanel):
 
 
 # ═══════════════════════════════════════════════════════════════
+# BACKUP AUTOMÁTICO
+# ═══════════════════════════════════════════════════════════════
+def _backup_db(db_path="gestionpro.db"):
+    """Crea un backup .zip del .db en backups/ y rota los últimos 7."""
+    try:
+        # Ruta del .db relativa al ejecutable/script
+        base_dir = os.path.dirname(os.path.abspath(
+            sys.executable if getattr(sys, 'frozen', False) else __file__
+        ))
+        db_full = os.path.join(base_dir, db_path)
+        if not os.path.isfile(db_full):
+            log.warning(f"Backup omitido: no se encontró {db_full}")
+            return
+        # Crear carpeta backups/
+        bk_dir = os.path.join(base_dir, "backups")
+        os.makedirs(bk_dir, exist_ok=True)
+        # Nombre: gestionpro_20260609_1225.zip
+        ts = datetime.now().strftime("%Y%m%d_%H%M")
+        zip_name = f"gestionpro_{ts}.zip"
+        zip_path = os.path.join(bk_dir, zip_name)
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(db_full, os.path.basename(db_full))
+        log.info(f"Backup creado: {zip_path}")
+        # Rotación: conservar solo los últimos 7
+        backups = sorted(glob.glob(os.path.join(bk_dir, "gestionpro_*.zip")))
+        while len(backups) > 7:
+            old = backups.pop(0)
+            os.remove(old)
+            log.info(f"Backup antiguo eliminado: {os.path.basename(old)}")
+    except Exception as e:
+        log.error(f"Error al crear backup: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════════════
 def main():
@@ -1827,12 +2149,21 @@ def main():
         _mostrar_error_licencia()   # nunca retorna (sys.exit)
     _DB = DB()
     _init_scale()   # detectar resolución y calcular SCALE antes de cualquier ventana
+    # ── Wizard de primer arranque ──
+    if _DB.cfg("wizard_done") != "1":
+        wiz = SetupWizard(_DB)
+        wiz.mainloop()
+        if not wiz.completed:
+            _DB.close()
+            log.info("Wizard cancelado — saliendo")
+            return
     login = LoginWindow()
     login.mainloop()
     if login.result:
         app = MainWindow(login.result)
         app.mainloop()
     _DB.close()
+    _backup_db()    # backup automático al cerrar
     log.info("=== GestiónPro cerrado ===")
 
 if __name__ == "__main__":
