@@ -1,0 +1,27 @@
+# GestiónPro - Archivos ignorados
+
+# ── Script de licencias (PRIVADO del desarrollador) ──
+generar_licencia.py
+
+# ── Archivos de licencia de prueba ──
+licencia.dat
+licencia_test.dat
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# ── Build ──
+build/
+dist/
+*.spec
+
+# ── Logs y DB locales ──
+*.log
+*.db
+
+# ── IDE ──
+.vscode/
+.idea/

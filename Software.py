@@ -4,7 +4,7 @@ GestiónPro v2.0 Comercial
 Sistema de gestión para cualquier tipo de negocio.
 SQLite · Inventario · POS · Caja · Informes · Excel · Gráficos
 """
-import sqlite3, hashlib, logging, random, os
+import sqlite3, hashlib, hmac, json, logging, random, os, sys
 from datetime import datetime, date, timedelta
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -44,6 +44,86 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("GestiónPro")
+
+# ── Licencia ─────────────────────────────────────────────────
+_LICENSE_SALT = b"G3st10nPr0_2026_S4lt_S3cr3t4_X7k9Qm"
+_LICENSE_FILE = "licencia.dat"
+_LIC_INFO: dict = {}   # se llena en main() tras validar
+
+def _verificar_licencia():
+    """Valida el archivo licencia.dat con HMAC-SHA256.
+    Retorna un dict con info de la licencia si es válida, o None si falla.
+    Claves del dict: cliente, expira, dias_restantes, permanente.
+    """
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(
+            sys.executable if getattr(sys, 'frozen', False) else __file__
+        )), _LICENSE_FILE)
+        if not os.path.isfile(path):
+            log.error(f"Archivo de licencia no encontrado: {path}")
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            lic = json.load(f)
+        cliente = lic.get("cliente", "")
+        expira  = lic.get("expira", "")
+        firma   = lic.get("firma", "")
+        if not cliente or not expira or not firma:
+            log.error("Licencia incompleta: faltan campos obligatorios")
+            return None
+        # Verificar firma HMAC-SHA256
+        payload = f"{cliente.strip().upper()}|{expira}".encode("utf-8")
+        firma_esperada = hmac.new(_LICENSE_SALT, payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(firma, firma_esperada):
+            log.error("Firma de licencia inválida")
+            return None
+        # Licencia permanente
+        if expira.upper() == "PERMANENTE":
+            log.info(f"Licencia PERMANENTE — Cliente: {cliente}")
+            return {"cliente": cliente, "expira": expira,
+                    "dias_restantes": -1, "permanente": True}
+        # Verificar expiración
+        fecha_exp = datetime.strptime(expira, "%Y-%m-%d").date()
+        if date.today() > fecha_exp:
+            log.error(f"Licencia expirada el {expira}")
+            return None
+        dias_rest = (fecha_exp - date.today()).days
+        log.info(f"Licencia válida — Cliente: {cliente} — Expira: {expira} ({dias_rest} días restantes)")
+        return {"cliente": cliente, "expira": expira,
+                "dias_restantes": dias_rest, "permanente": False}
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        log.error(f"Error al leer licencia: {e}")
+        return None
+    except Exception as e:
+        log.error(f"Error inesperado en validación de licencia: {e}")
+        return None
+
+def _mostrar_error_licencia():
+    """Muestra una ventana de error de licencia y cierra la aplicación."""
+    try:
+        root = ctk.CTk()
+        root.title("GestiónPro — Licencia")
+        w, h = 480, 300
+        root.geometry(f"{w}x{h}")
+        root.resizable(False, False)
+        root.configure(fg_color="#181818")
+        card = ctk.CTkFrame(root, fg_color="#252525", corner_radius=12)
+        card.pack(expand=True, padx=30, pady=30, fill="both")
+        ctk.CTkLabel(card, text="🔒", font=("Segoe UI", 48)).pack(pady=(24, 4))
+        ctk.CTkLabel(card, text="Licencia no válida",
+                     font=("Segoe UI", 18, "bold"), text_color="#e74c3c").pack()
+        msg = ("No se encontró un archivo de licencia válido.\n"
+               "Contacte al proveedor del software para\n"
+               "obtener o renovar su licencia.")
+        ctk.CTkLabel(card, text=msg, font=("Segoe UI", 11),
+                     text_color="#888888", justify="center").pack(pady=(8, 16))
+        ctk.CTkButton(card, text="Cerrar", command=root.destroy,
+                      width=160, height=38, fg_color="#e74c3c",
+                      hover_color="#c0392b",
+                      font=("Segoe UI", 12, "bold")).pack(pady=(0, 20))
+        root.mainloop()
+    except Exception:
+        pass  # Si falla la GUI, simplemente salimos
+    sys.exit(1)
 
 # ── Paleta ────────────────────────────────────────────────────
 BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"
@@ -626,6 +706,24 @@ class MainWindow(ctk.CTk):
             self._nav_btns[PanelCls] = b
         W_sep(sb)
         W_btn(sb, "🚪  Cerrar sesión", self.destroy, color="#2a2a2a", w=195).pack(pady=_sc(10), padx=_sc(10))
+        # ── Indicador de licencia al fondo de la sidebar ──
+        lic_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        lic_frame.pack(side="bottom", fill="x", padx=_sc(10), pady=(_sc(4), _sc(10)))
+        if _LIC_INFO:
+            if _LIC_INFO["permanente"]:
+                lic_icon = "🟢"
+                lic_text = "Licencia permanente"
+                lic_color = OK
+            else:
+                dias = _LIC_INFO["dias_restantes"]
+                if dias > 90:
+                    lic_icon = "🟢"; lic_color = OK
+                elif dias > 30:
+                    lic_icon = "🟡"; lic_color = WARN
+                else:
+                    lic_icon = "🔴"; lic_color = ERR
+                lic_text = f"{dias} días de licencia"
+            W_label(lic_frame, f"{lic_icon}  {lic_text}", size=9, color=lic_color).pack()
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side="left", fill="both", expand=True)
 
@@ -1721,10 +1819,14 @@ class ConfigPanel(BasePanel):
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════════════
 def main():
-    global _DB
+    global _DB, _LIC_INFO
+    log.info("=== GestiónPro v2.0 iniciando ===")
+    # ── Validar licencia ANTES de cualquier otra cosa ──
+    _LIC_INFO = _verificar_licencia()
+    if not _LIC_INFO:
+        _mostrar_error_licencia()   # nunca retorna (sys.exit)
     _DB = DB()
     _init_scale()   # detectar resolución y calcular SCALE antes de cualquier ventana
-    log.info("=== GestiónPro v2.0 iniciando ===")
     login = LoginWindow()
     login.mainloop()
     if login.result:
