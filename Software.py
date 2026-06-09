@@ -252,6 +252,15 @@ class DB:
             amount REAL NOT NULL,
             notes TEXT NOT NULL DEFAULT '',
             timestamp TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            session_id INTEGER REFERENCES cash_sessions(id),
+            date TEXT NOT NULL DEFAULT (date('now')),
+            category TEXT NOT NULL,
+            amount REAL NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            timestamp TEXT NOT NULL);
         """)
         self.con.commit()
         self._migrate()
@@ -561,11 +570,32 @@ class DB:
             " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
             " LEFT JOIN products p ON si.product_id=p.id"
             " WHERE s.date BETWEEN ? AND ?", (d1,d2))
+    def expenses_summary(self, d1, d2):
+        return self.one("SELECT COALESCE(SUM(amount),0) total FROM expenses WHERE date BETWEEN ? AND ?", (d1,d2))
     def top_products(self, d1, d2, n=10):
         return self.all(
             "SELECT si.product_name pname, SUM(si.quantity) qty, SUM(si.subtotal) rev"
             " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
             " WHERE s.date BETWEEN ? AND ? GROUP BY si.product_name ORDER BY qty DESC LIMIT ?", (d1,d2,n))
+
+    # ── Gastos ───────────────────────────────────────────────
+    def get_expenses(self, d1, d2):
+        return self.all(
+            "SELECT e.*, u.username uname FROM expenses e"
+            " JOIN users u ON e.user_id = u.id"
+            " WHERE e.date BETWEEN ? AND ? ORDER BY e.timestamp DESC", (d1, d2))
+
+    def add_expense(self, user_id, session_id, category, amount, description, affect_cash=True):
+        now = datetime.now()
+        eid = self.run(
+            "INSERT INTO expenses(user_id,session_id,date,category,amount,description,timestamp) VALUES(?,?,?,?,?,?,?)",
+            (user_id, session_id if affect_cash else None, now.strftime("%Y-%m-%d"), category, amount, description, now.strftime("%Y-%m-%d %H:%M:%S")))
+        if affect_cash and session_id:
+            desc = f"Gasto: {category}"
+            if description: desc += f" ({description})"
+            self.add_cash_transaction(session_id, "outcome", amount, desc)
+        log.info(f"Gasto registrado: {category} ${amount:.0f}")
+        return eid
     def sales_by_day(self, d1, d2):
         return self.all("SELECT date, COALESCE(SUM(total),0) rev, COUNT(*) cnt"
                         " FROM sales WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date", (d1,d2))
@@ -1011,6 +1041,7 @@ class MainWindow(ctk.CTk):
             ("📦  Inventario",      InventarioPanel),
             ("👥  Clientes",        ClientesPanel),
             ("🛒  Punto de Venta",  VentaPanel),
+            ("💸  Gastos",          GastosPanel),
             ("💰  Caja",            CierreCajaPanel),
             ("📄  Informes",        InformesPanel),
         ]
@@ -1083,14 +1114,15 @@ class DashboardPanel(BasePanel):
 
         s  = self.db.summary(d1, d1); pr = self.db.profit_summary(d1, d1)
         ls = self.db.low_stock();     iv = self.db.inventory_value()
-        avg = s["revenue"]/s["cnt"] if s["cnt"] else 0
+        exp = self.db.expenses_summary(d1, d1)
+        net_profit = pr["profit"] - exp["total"]
 
         row = ctk.CTkFrame(self, fg_color="transparent"); row.pack(fill="x")
         for icon, lbl, val, color in [
             ("💰","Ingresos Hoy",   fmt(s["revenue"]),  OK),
-            ("📈","Ganancia Hoy",   fmt(pr["profit"]),  PURPLE),
+            ("📈","Ganancia Neta",  fmt(net_profit),    PURPLE),
+            ("💸","Gastos Hoy",     fmt(exp["total"]),  WARN),
             ("🛒","Ventas Hoy",     str(s["cnt"]),      ACC),
-            ("🎫","Ticket Prom.",   fmt(avg),            WARN),
             ("⚠️","Stock Crítico",  str(len(ls)),        ERR if ls else DIM),
         ]:
             c = W_card(row); c.pack(side="left", expand=True, fill="x", padx=(0,6))
