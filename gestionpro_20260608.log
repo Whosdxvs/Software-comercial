@@ -1,0 +1,60 @@
+2026-06-08 14:33:41 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 14:33:41 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 14:33:59 [INFO] Login: admin
+2026-06-08 14:34:43 [INFO] Caja abierta: sesión #1 inicial $100000
+2026-06-08 14:39:33 [INFO] === GestiónPro cerrado ===
+2026-06-08 14:39:43 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 14:39:43 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 14:39:49 [INFO] Login: admin
+2026-06-08 14:40:04 [INFO] === GestiónPro cerrado ===
+2026-06-08 15:09:34 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 15:09:34 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 15:09:55 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 15:09:55 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 15:09:58 [INFO] Login: admin
+2026-06-08 15:09:59 [INFO] === GestiónPro cerrado ===
+2026-06-08 15:11:15 [INFO] === GestiónPro cerrado ===
+2026-06-08 15:36:53 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 15:36:53 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 15:36:58 [INFO] === GestiónPro cerrado ===
+2026-06-08 15:48:37 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 15:48:37 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 15:49:37 [INFO] === GestiónPro cerrado ===
+2026-06-08 16:05:04 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 16:05:04 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 16:05:20 [INFO] Login: admin
+2026-06-08 16:06:03 [INFO] === GestiónPro cerrado ===
+2026-06-08 18:11:49 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 18:11:49 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 18:11:58 [INFO] Login: admin
+2026-06-08 18:20:27 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 18:20:27 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 18:20:34 [INFO] Login: admin
+2026-06-08 18:21:13 [INFO] === GestiónPro cerrado ===
+2026-06-08 19:15:29 [INFO] Migración: columna 'session_id' agregada a 'sales'
+2026-06-08 19:15:29 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 19:15:29 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 19:15:43 [INFO] Login: admin
+2026-06-08 19:25:32 [INFO] === GestiónPro cerrado ===
+2026-06-08 19:26:49 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 19:26:49 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 19:26:57 [INFO] Login: admin
+2026-06-08 19:28:06 [INFO] Venta #3: 1 ítem(s), total $100000, pago:efectivo
+2026-06-08 19:28:06 [INFO] Ticket generado: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\tickets\ticket_3.txt
+2026-06-08 19:28:16 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 19:28:16 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 19:28:32 [INFO] Venta #3 anulada, stock restaurado
+2026-06-08 19:34:53 [INFO] === GestiónPro cerrado ===
+2026-06-08 21:13:11 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 21:13:11 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 21:13:14 [INFO] === GestiónPro cerrado ===
+2026-06-08 21:18:16 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-08 21:18:16 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-08 21:18:26 [INFO] Login: admin
+2026-06-08 21:19:16 [INFO] Venta #4: 1 ítem(s), total $100000, pago:efectivo
+2026-06-08 21:19:16 [INFO] Ticket generado: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\tickets\ticket_4.txt
+2026-06-08 21:19:18 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 21:19:18 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 21:19:41 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 21:19:41 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-08 21:20:00 [INFO] === GestiónPro cerrado ===

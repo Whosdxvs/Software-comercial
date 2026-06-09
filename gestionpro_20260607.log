@@ -1,0 +1,56 @@
+2026-06-07 02:08:59 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:08:59 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:10:24 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:10:24 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:10:25 [INFO] Ventana de login iniciada
+2026-06-07 02:10:59 [WARNING] Login fallido para: admin
+2026-06-07 02:11:02 [INFO] Login exitoso: admin (rol: admin)
+2026-06-07 02:11:02 [INFO] Ventana principal: admin (admin)
+2026-06-07 02:17:17 [INFO] Producto creado: Audifonos airpods pro 2da generación SKU:476259 stock:0 precio:$100000.0
+2026-06-07 02:17:46 [INFO] Producto actualizado: Audifonos airpods pro 2da generación SKU:476259
+2026-06-07 02:18:23 [INFO] Venta #1: 1 ítem(s), total $100000, pago:efectivo
+2026-06-07 02:19:25 [INFO] === GestiónPro cerrado ===
+2026-06-07 02:19:47 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:19:47 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:19:47 [INFO] Ventana de login iniciada
+2026-06-07 02:20:02 [INFO] Login exitoso: admin (rol: admin)
+2026-06-07 02:20:02 [INFO] Ventana principal: admin (admin)
+2026-06-07 02:20:14 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:14 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:39 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:39 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:51 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:51 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:58 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:20:58 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:21:43 [INFO] Configuración actualizada
+2026-06-07 02:21:44 [INFO] === GestiónPro cerrado ===
+2026-06-07 02:22:56 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:22:56 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:22:57 [INFO] Ventana de login iniciada
+2026-06-07 02:23:09 [INFO] Login exitoso: admin (rol: admin)
+2026-06-07 02:23:10 [INFO] Ventana principal: admin (admin)
+2026-06-07 02:23:20 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:23:20 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:23:39 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:23:39 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:23:44 [INFO] Venta #1 anulada y stock devuelto.
+2026-06-07 02:23:49 [INFO] === GestiónPro cerrado ===
+2026-06-07 02:26:29 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:26:29 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:26:30 [INFO] Ventana de login iniciada
+2026-06-07 02:26:39 [INFO] Login exitoso: admin (rol: admin)
+2026-06-07 02:26:39 [INFO] Ventana principal: admin (admin)
+2026-06-07 02:27:01 [INFO] === GestiónPro cerrado ===
+2026-06-07 02:42:45 [INFO] Base de datos: C:\Users\josed\OneDrive\Desktop\Prog\Software 2.0\gestionpro.db
+2026-06-07 02:42:45 [INFO] === GestiónPro v2.0 iniciando ===
+2026-06-07 02:42:45 [INFO] Ventana de login iniciada
+2026-06-07 02:42:57 [INFO] Login exitoso: admin (rol: admin)
+2026-06-07 02:42:58 [INFO] Ventana principal: admin (admin)
+2026-06-07 02:43:12 [INFO] Venta #2: 1 ítem(s), total $100000, pago:efectivo
+2026-06-07 02:43:14 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:43:14 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:43:21 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:43:21 [INFO] Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+2026-06-07 02:43:29 [INFO] Venta #2 anulada y stock devuelto.
+2026-06-07 02:44:57 [INFO] === GestiónPro cerrado ===
