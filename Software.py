@@ -4,7 +4,6 @@ GestiónPro v2.0 Comercial
 Sistema de gestión para cualquier tipo de negocio.
 SQLite · Inventario · POS · Caja · Informes · Excel · Gráficos
 """
-import sys
 import sqlite3, hashlib, logging, random, os
 from datetime import datetime, date, timedelta
 import tkinter as tk
@@ -51,6 +50,37 @@ BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"
 ACC    = "#4682DC"; ACCH   = "#5a96f0"; TEXT = "#f0f0f0"
 DIM    = "#888888"; OK     = "#3dba6e"; ERR  = "#e74c3c"
 WARN   = "#f39c12"; PURPLE = "#8e44ad"
+
+# ── Escala Responsiva ─────────────────────────────────────────
+# Referencia base: 1366×768 (portátil estándar = SCALE 1.0).
+# En monitores más grandes el factor sube → fuentes y widgets más grandes.
+# Se llama _init_scale() desde main() antes de crear ninguna ventana.
+SCALE: float = 1.0
+
+def _init_scale():
+    """Detecta la resolución real y actualiza el factor global SCALE."""
+    global SCALE
+    try:
+        _tmp = tk.Tk()
+        _tmp.withdraw()
+        sw = _tmp.winfo_screenwidth()
+        sh = _tmp.winfo_screenheight()
+        _tmp.destroy()
+        # Base: 1366×768 (portátil típico).
+        # 1366×768  → SCALE ≈ 1.00  (portátil, se ve bien)
+        # 1920×1080 → SCALE ≈ 1.40  (PC escritorio, texto más grande)
+        # 2560×1440 → SCALE ≈ 1.80  (2K, llega al tope)
+        base_w, base_h = 1366, 768
+        SCALE = min(sw / base_w, sh / base_h)
+        # Clampear: nunca menos de 0.75 ni más de 1.80
+        SCALE = max(0.75, min(SCALE, 1.80))
+        log.info(f"Pantalla: {sw}×{sh}  →  SCALE={SCALE:.3f}")
+    except Exception:
+        SCALE = 1.0
+
+def _sc(n: int) -> int:
+    """Escala un valor de píxeles según la resolución de la pantalla."""
+    return max(1, int(round(n * SCALE)))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -161,7 +191,7 @@ class DB:
             ("business_name", "Mi Negocio"), ("business_type", "Tienda General"),
             ("currency_symbol", "$"), ("currency_code", "COP"),
             ("address", ""), ("phone", ""), ("tax_percent", "0"),
-            ("low_stock_limit", "5"),
+            ("low_stock_limit", "5"), ("logo_path", ""),
         ]:
             self.con.execute("INSERT OR IGNORE INTO config VALUES(?,?)", (k, v))
         self.con.execute(
@@ -463,28 +493,28 @@ def fmt(v) -> str:
 def style_tree():
     s = ttk.Style(); s.theme_use("clam")
     s.configure("G.Treeview", background=CARD, foreground=TEXT, fieldbackground=CARD,
-                rowheight=28, font=("Segoe UI",10), borderwidth=0)
+                rowheight=_sc(28), font=("Segoe UI", _sc(10)), borderwidth=0)
     s.configure("G.Treeview.Heading", background="#111", foreground=ACC,
-                font=("Segoe UI",10,"bold"), relief="flat")
+                font=("Segoe UI", _sc(10), "bold"), relief="flat")
     s.map("G.Treeview", background=[("selected",ACC)], foreground=[("selected","white")])
     s.configure("TScrollbar", background="#333", troughcolor="#222", arrowcolor="#888", borderwidth=0)
 
 def W_entry(m, ph="", w=200, pw=False):
-    return ctk.CTkEntry(m, width=w, placeholder_text=ph, show="*" if pw else "", font=("Segoe UI",11))
+    return ctk.CTkEntry(m, width=_sc(w), placeholder_text=ph, show="*" if pw else "", font=("Segoe UI", _sc(11)))
 def W_label(m, t, size=11, color=TEXT, bold=False, **kw):
-    return ctk.CTkLabel(m, text=t, font=("Segoe UI",size,"bold" if bold else "normal"), text_color=color, **kw)
+    return ctk.CTkLabel(m, text=t, font=("Segoe UI", _sc(size), "bold" if bold else "normal"), text_color=color, **kw)
 def W_btn(m, t, cmd, color=ACC, w=130, h=34):
-    return ctk.CTkButton(m, text=t, command=cmd, width=w, height=h,
-                         fg_color=color, hover_color=ACCH, font=("Segoe UI",11,"bold"))
-def W_card(m, **kw): return ctk.CTkFrame(m, fg_color=CARD, corner_radius=10, **kw)
-def W_combo(m, vals, w=200): return ctk.CTkComboBox(m, values=vals, width=w, font=("Segoe UI",11))
+    return ctk.CTkButton(m, text=t, command=cmd, width=_sc(w), height=_sc(h),
+                         fg_color=color, hover_color=ACCH, font=("Segoe UI", _sc(11), "bold"))
+def W_card(m, **kw): return ctk.CTkFrame(m, fg_color=CARD, corner_radius=_sc(10), **kw)
+def W_combo(m, vals, w=200): return ctk.CTkComboBox(m, values=vals, width=_sc(w), font=("Segoe UI", _sc(11)))
 def W_sep(m): ctk.CTkFrame(m, fg_color="#2e2e2e", height=1).pack(fill="x", padx=8, pady=3)
 
 def make_tree(parent, cols, hdrs, widths, height=None):
     kw = {"height": height} if height else {}
     tree = ttk.Treeview(parent, columns=cols, show="headings", style="G.Treeview", **kw)
     for c, h, w in zip(cols, hdrs, widths):
-        tree.heading(c, text=h); tree.column(c, width=w, minwidth=30)
+        tree.heading(c, text=h); tree.column(c, width=_sc(w), minwidth=_sc(30))
     sb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=sb.set)
     sb.pack(side="right", fill="y", pady=5, padx=(0,4))
@@ -500,21 +530,47 @@ class LoginWindow(ctk.CTk):
         super().__init__()
         self.result = None
         self.title(f"GestiónPro — {_DB.cfg('business_name')}")
-        self.geometry("440x510"); self.resizable(False,False)
+        w, h = _sc(460), _sc(540)
+        self.geometry(f"{w}x{h}"); self.resizable(False, False)
         self.configure(fg_color=BG)
         self._build()
 
     def _build(self):
-        card = W_card(self); card.pack(expand=True, padx=40, pady=45, fill="both")
-        W_label(card, "🏪", size=42).pack(pady=(30,4))
-        W_label(card, _DB.cfg("business_name"), size=20, bold=True, color=ACC, wraplength=340).pack()
-        W_label(card, _DB.cfg("business_type"), size=11, color=DIM).pack(pady=(2,26))
-        W_label(card, "Usuario", size=10, color=DIM).pack(anchor="w", padx=36)
-        self.eu = W_entry(card, "usuario", w=320); self.eu.pack(padx=36, pady=(2,10))
-        W_label(card, "Contraseña", size=10, color=DIM).pack(anchor="w", padx=36)
-        self.ep = W_entry(card, "••••••••", w=320, pw=True); self.ep.pack(padx=36, pady=(2,6))
+        card = W_card(self); card.pack(expand=True, padx=_sc(40), pady=_sc(45), fill="both")
+
+        # ── Logo: imagen de config o emoji por defecto ─────────────────
+        logo_path = _DB.cfg("logo_path")
+        logo_shown = False
+        if logo_path and os.path.isfile(logo_path):
+            try:
+                from PIL import Image
+                img_w, img_h = _sc(100), _sc(132)
+                pil_img = Image.open(logo_path).convert("RGBA")
+                # Eliminar fondo negro: píxeles oscuros → transparentes
+                pil_img.putdata([
+                    (r, g, b, 0) if r < 50 and g < 50 and b < 50 else (r, g, b, a)
+                    for r, g, b, a in pil_img.getdata()
+                ])
+                pil_img = pil_img.resize((img_w, img_h), Image.LANCZOS)
+                ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img,
+                                       size=(img_w, img_h))
+                ctk.CTkLabel(card, image=ctk_img, text="",
+                             fg_color="transparent").pack(pady=(_sc(20), _sc(4)))
+                logo_shown = True
+            except Exception:
+                pass
+        if not logo_shown:
+            W_label(card, "🏪", size=42).pack(pady=(_sc(30), _sc(4)))
+
+        W_label(card, _DB.cfg("business_name"), size=20, bold=True, color=ACC,
+                wraplength=_sc(340)).pack()
+        W_label(card, _DB.cfg("business_type"), size=11, color=DIM).pack(pady=(_sc(2), _sc(26)))
+        W_label(card, "Usuario", size=10, color=DIM).pack(anchor="w", padx=_sc(36))
+        self.eu = W_entry(card, "usuario", w=320); self.eu.pack(padx=_sc(36), pady=(_sc(2), _sc(10)))
+        W_label(card, "Contraseña", size=10, color=DIM).pack(anchor="w", padx=_sc(36))
+        self.ep = W_entry(card, "••••••••", w=320, pw=True); self.ep.pack(padx=_sc(36), pady=(_sc(2), _sc(6)))
         self.lerr = W_label(card, "", color=ERR, size=10); self.lerr.pack()
-        W_btn(card, "  Ingresar  →", self._login, w=320, h=42).pack(padx=36, pady=(8,30))
+        W_btn(card, "  Ingresar  →", self._login, w=320, h=42).pack(padx=_sc(36), pady=(_sc(8), _sc(30)))
         self.eu.bind("<Return>", lambda _: self.ep.focus())
         self.ep.bind("<Return>", lambda _: self._login())
 
@@ -534,17 +590,17 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.user = user
         self.title(f"GestiónPro — {_DB.cfg('business_name')}")
-        self.geometry("1220x740"); self.minsize(1000,640)
+        self.geometry(f"{_sc(1220)}x{_sc(740)}"); self.minsize(_sc(900), _sc(580))
         self.configure(fg_color=BG)
         style_tree(); self._build(); self._nav(DashboardPanel)
 
     def _build(self):
-        sb = ctk.CTkFrame(self, fg_color=SIDEBAR, width=215, corner_radius=0)
+        sb = ctk.CTkFrame(self, fg_color=SIDEBAR, width=_sc(215), corner_radius=0)
         sb.pack(side="left", fill="y"); sb.pack_propagate(False)
-        ctk.CTkFrame(sb, fg_color=ACC, height=3, corner_radius=0).pack(fill="x")
-        W_label(sb, "🏪", size=30).pack(pady=(18,0))
-        W_label(sb, _DB.cfg("business_name"), size=12, bold=True, color=ACC, wraplength=190).pack()
-        W_label(sb, f"👤  {self.user['username']}  ·  {self.user['role']}", size=9, color=DIM).pack(pady=(2,10))
+        ctk.CTkFrame(sb, fg_color=ACC, height=_sc(3), corner_radius=0).pack(fill="x")
+        W_label(sb, "🏪", size=30).pack(pady=(_sc(18), 0))
+        W_label(sb, _DB.cfg("business_name"), size=12, bold=True, color=ACC, wraplength=_sc(190)).pack()
+        W_label(sb, f"👤  {self.user['username']}  ·  {self.user['role']}", size=9, color=DIM).pack(pady=(_sc(2), _sc(10)))
         W_sep(sb)
         self._nav_btns: dict = {}
         items = [
@@ -557,19 +613,19 @@ class MainWindow(ctk.CTk):
         ]
         if self.user["role"] == "admin":
             items += [
-                ("🏷️  Categorías",    CategoriasPanel),
+                ("📂  Categorías",    CategoriasPanel),
                 ("👤  Usuarios",      UsuariosPanel),
-                ("⚙️  Configuración", ConfigPanel),
+                ("⚙  Configuración", ConfigPanel),
             ]
         for text, PanelCls in items:
-            b = ctk.CTkButton(sb, text=text, anchor="w", height=42,
+            b = ctk.CTkButton(sb, text=text, anchor="w", height=_sc(42),
                 fg_color="transparent", hover_color="#2a2a2a",
-                font=("Segoe UI",11), corner_radius=8,
+                font=("Segoe UI", _sc(11)), corner_radius=_sc(8),
                 command=lambda pc=PanelCls: self._nav(pc))
-            b.pack(fill="x", padx=8, pady=2)
+            b.pack(fill="x", padx=_sc(8), pady=_sc(2))
             self._nav_btns[PanelCls] = b
         W_sep(sb)
-        W_btn(sb, "🚪  Cerrar sesión", self.destroy, color="#2a2a2a", w=195).pack(pady=10, padx=10)
+        W_btn(sb, "🚪  Cerrar sesión", self.destroy, color="#2a2a2a", w=195).pack(pady=_sc(10), padx=_sc(10))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side="left", fill="both", expand=True)
 
@@ -728,7 +784,7 @@ class InventarioPanel(BasePanel):
         self._refresh()
 
     def _form(self, title, data=None):
-        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry("480x570"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(480)}x{_sc(570)}"); dlg.grab_set()
         dlg.configure(fg_color=BG)
         W_label(dlg, title, size=14, bold=True, color=ACC).pack(pady=(20,10))
         cats = self.db.get_categories()
@@ -746,15 +802,15 @@ class InventarioPanel(BasePanel):
         ]
         entries = {}
         for lbl, key, typ, default in fields:
-            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=26, pady=(6,0))
+            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=_sc(26), pady=(_sc(6), 0))
             if typ == "combo":
-                w = W_combo(dlg, cats, w=426); w.pack(padx=26)
+                w = W_combo(dlg, cats, w=426); w.pack(padx=_sc(26))
                 w.set(str(data.get(key, default)) if data else default)
             else:
                 w = W_entry(dlg, w=426)
                 val = str(data.get(key,"")) if data else default
                 if val: w.insert(0, val)
-                w.pack(padx=26)
+                w.pack(padx=_sc(26))
             entries[key] = w
 
         def save():
@@ -776,7 +832,7 @@ class InventarioPanel(BasePanel):
             if data: self.db.upd_product(data["id"],name,sku or data["sku"],barcode,category,price,cost,supplier,stock,min_stock,unit)
             else:    self.db.add_product(name,sku,barcode,category,price,cost,supplier,stock,min_stock,unit)
             dlg.destroy(); self._refresh()
-        W_btn(dlg, "💾 Guardar", save, w=426, h=40).pack(padx=26, pady=14)
+        W_btn(dlg, "💾 Guardar", save, w=426, h=40).pack(padx=_sc(26), pady=_sc(14))
 
     def _adj(self):
         if not self._sel: messagebox.showinfo("Info","Selecciona un producto"); return
@@ -860,17 +916,17 @@ class ClientesPanel(BasePanel):
             self.tree.insert("","end", values=(c["id"],c["name"],c["document"],c["phone"],c["email"],c["address"],c["created_at"]))
 
     def _form(self, title, data=None):
-        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry("430x430"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(430)}x{_sc(430)}"); dlg.grab_set()
         dlg.configure(fg_color=BG)
         W_label(dlg, title, size=14, bold=True, color=ACC).pack(pady=(20,10))
         fields = [("Nombre *","name"),("Documento / NIT","document"),("Teléfono","phone"),
                   ("Email","email"),("Dirección","address"),("Notas","notes")]
         entries = {}
         for lbl, key in fields:
-            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=26, pady=(6,0))
+            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=_sc(26), pady=(_sc(6), 0))
             e = W_entry(dlg, w=378)
             if data and data.get(key): e.insert(0, str(data[key]))
-            e.pack(padx=26); entries[key] = e
+            e.pack(padx=_sc(26)); entries[key] = e
         def save():
             n = entries["name"].get().strip()
             if not n: messagebox.showerror("Error","Nombre obligatorio",parent=dlg); return
@@ -879,7 +935,7 @@ class ClientesPanel(BasePanel):
             if data: self.db.upd_client(data["id"], *args)
             else:    self.db.add_client(*args)
             dlg.destroy(); self._refresh()
-        W_btn(dlg, "💾 Guardar", save, w=378, h=40).pack(padx=26, pady=14)
+        W_btn(dlg, "💾 Guardar", save, w=378, h=40).pack(padx=_sc(26), pady=_sc(14))
 
     def _new(self): self._form("Nuevo Cliente")
     def _edit(self):
@@ -951,7 +1007,7 @@ class VentaPanel(BasePanel):
 
         # ── Carrito ──
         rf = W_card(body); rf.pack(side="left", fill="y")
-        rf.configure(width=400); rf.pack_propagate(False)
+        rf.configure(width=_sc(400)); rf.pack_propagate(False)
 
         sess_bar = ctk.CTkFrame(rf, fg_color="#1a2a1a", corner_radius=6)
         sess_bar.pack(fill="x", padx=10, pady=(8,0))
@@ -991,10 +1047,10 @@ class VentaPanel(BasePanel):
         W_label(rf, "Notas (opcional)", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
         self.e_notes = W_entry(rf, "", w=374); self.e_notes.pack(padx=12, pady=2)
 
-        br = ctk.CTkFrame(rf, fg_color="transparent"); br.pack(fill="x", padx=12, pady=8)
-        W_btn(br, "🗑 Quitar",  self._remove,   color="#444", w=105).pack(side="left")
-        W_btn(br, "🧹 Limpiar", self._clear,    color="#444", w=105).pack(side="left", padx=4)
-        W_btn(br, "✅ COBRAR",  self._checkout, color=OK,    w=128).pack(side="right")
+        br = ctk.CTkFrame(rf, fg_color="transparent"); br.pack(fill="x", padx=_sc(12), pady=_sc(8))
+        W_btn(br, "🗑 Quitar",  self._remove, color="#444", w=100, h=36).pack(side="left", fill="x", expand=True)
+        W_btn(br, "🧹 Limpiar", self._clear,  color="#444", w=100, h=36).pack(side="left", fill="x", expand=True, padx=(_sc(4), _sc(4)))
+        W_btn(br, "✅ COBRAR",  self._checkout, color=OK, w=120, h=36).pack(side="left", fill="x", expand=True)
 
     # ── Lógica del carrito ────────────────────────────────────
     def _search_prod(self):
@@ -1593,12 +1649,12 @@ class UsuariosPanel(BasePanel):
 # ═══════════════════════════════════════════════════════════════
 class ConfigPanel(BasePanel):
     def __init__(self, master, db, user):
-        super().__init__(master, db, user, "⚙️ Configuración del Negocio")
+        super().__init__(master, db, user, "⚙ Configuración del Negocio")
         self._build()
 
     def _build(self):
         frm = W_card(self); frm.pack(fill="both", expand=True)
-        W_label(frm,"Datos del negocio",bold=True,color=ACC).pack(pady=(16,6))
+        W_label(frm, "Datos del negocio", bold=True, color=ACC).pack(pady=(16, 6))
         W_sep(frm)
         fields = [
             ("Nombre del negocio",           "business_name"),
@@ -1613,20 +1669,53 @@ class ConfigPanel(BasePanel):
         self.entries = {}
         grid = ctk.CTkFrame(frm, fg_color="transparent"); grid.pack(padx=30, pady=10, fill="x")
         for i, (lbl, key) in enumerate(fields):
-            W_label(grid, lbl, size=10, color=DIM).grid(row=i, column=0, sticky="w", pady=7, padx=(0,20))
+            W_label(grid, lbl, size=10, color=DIM).grid(row=i, column=0, sticky="w", pady=7, padx=(0, 20))
             e = W_entry(grid, w=280)
             v = self.db.cfg(key)
-            if v: e.insert(0,v)
+            if v: e.insert(0, v)
             e.grid(row=i, column=1, sticky="w")
             self.entries[key] = e
+
+        # ── Sección: Logo del negocio ────────────────────────────────
         W_sep(frm)
-        W_btn(frm,"💾  Guardar configuración",self._save,w=280,h=42).pack(pady=14)
-        W_label(frm,f"Log del día: {_log_file}",size=9,color=DIM).pack(pady=(0,10))
+        W_label(frm, "Logo del negocio", bold=True, color=ACC).pack(pady=(12, 4))
+        W_label(frm, "Aparece en la pantalla de inicio de sesión (PNG, JPG, WEBP)",
+                size=9, color=DIM).pack()
+
+        logo_row = ctk.CTkFrame(frm, fg_color="transparent")
+        logo_row.pack(fill="x", padx=30, pady=(8, 4))
+        current = self.db.cfg("logo_path") or ""
+        self._logo_lbl = W_label(logo_row,
+            os.path.basename(current) if current else "Sin logo seleccionado",
+            size=10, color=OK if current else DIM)
+        self._logo_lbl.pack(side="left", fill="x", expand=True)
+
+        def _pick_logo():
+            path = filedialog.askopenfilename(
+                title="Seleccionar logo",
+                filetypes=[("Imágenes", "*.png *.jpg *.jpeg *.webp *.bmp"), ("Todos", "*.*")])
+            if path:
+                self.db.set_cfg("logo_path", path)
+                self._logo_lbl.configure(text=os.path.basename(path), text_color=OK)
+                log.info(f"Logo actualizado: {path}")
+
+        def _clear_logo():
+            self.db.set_cfg("logo_path", "")
+            self._logo_lbl.configure(text="Sin logo seleccionado", text_color=DIM)
+            log.info("Logo eliminado")
+
+        W_btn(logo_row, "📂  Seleccionar", _pick_logo, w=140, h=32).pack(side="left", padx=(8, 4))
+        W_btn(logo_row, "✕  Quitar", _clear_logo, color="#444", w=90, h=32).pack(side="left")
+
+        W_sep(frm)
+        W_btn(frm, "💾  Guardar configuración", self._save, w=280, h=42).pack(pady=14)
+        W_label(frm, f"Log del día: {_log_file}", size=9, color=DIM).pack(pady=(0, 10))
 
     def _save(self):
         for key, e in self.entries.items(): self.db.set_cfg(key, e.get().strip())
-        messagebox.showinfo("✅ Guardado","Configuración guardada.\nReinicia para aplicar cambios de nombre.")
+        messagebox.showinfo("✅ Guardado", "Configuración guardada.\nReinicia para aplicar cambios de nombre/logo.")
         log.info("Configuración actualizada")
+
 
 # ═══════════════════════════════════════════════════════════════
 # ENTRY POINT
@@ -1634,6 +1723,7 @@ class ConfigPanel(BasePanel):
 def main():
     global _DB
     _DB = DB()
+    _init_scale()   # detectar resolución y calcular SCALE antes de cualquier ventana
     log.info("=== GestiónPro v2.0 iniciando ===")
     login = LoginWindow()
     login.mainloop()
