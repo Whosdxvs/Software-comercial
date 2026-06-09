@@ -32,6 +32,12 @@ try:
 except ImportError:
     HAS_PD = False
 
+try:
+    from escpos.printer import Usb, Serial, Network, Win32Raw
+    HAS_ESCPOS = True
+except ImportError:
+    HAS_ESCPOS = False
+
 # ── Logging ──────────────────────────────────────────────────
 _log_file = f"gestionpro_{date.today():%Y%m%d}.log"
 logging.basicConfig(
@@ -272,6 +278,7 @@ class DB:
             ("currency_symbol", "$"), ("currency_code", "COP"),
             ("address", ""), ("phone", ""), ("tax_percent", "0"),
             ("low_stock_limit", "5"), ("logo_path", ""),
+            ("printer_name", ""), ("printer_enabled", "0"),
         ]:
             self.con.execute("INSERT OR IGNORE INTO config VALUES(?,?)", (k, v))
         self.con.execute(
@@ -1401,14 +1408,12 @@ class VentaPanel(BasePanel):
         W_label(sess_bar, f"⏱  Turno abierto desde {opened[11:16]}", size=9, color=OK).pack(pady=4)
 
         W_label(rf, "🛒  Carrito", bold=True, color=ACC).pack(pady=(8,4))
-        frca = ctk.CTkFrame(rf, fg_color="#1a1a1a", corner_radius=8)
-        frca.pack(fill="x", padx=10)
-        self.ctree = make_tree(frca,
-            ("name","qty","price","sub"),
-            ("Producto","Cant","Precio","Subtotal"),
-            (155,50,92,92), height=11)
+        
+        # ── Controles inferiores (anclados abajo) ──
+        bf = ctk.CTkFrame(rf, fg_color="transparent")
+        bf.pack(side="bottom", fill="x")
 
-        sf = ctk.CTkFrame(rf, fg_color="transparent"); sf.pack(fill="x", padx=12, pady=4)
+        sf = ctk.CTkFrame(bf, fg_color="transparent"); sf.pack(fill="x", padx=12, pady=4)
         def srow(lbl, attr, color=TEXT):
             r = ctk.CTkFrame(sf, fg_color="transparent"); r.pack(fill="x", pady=1)
             W_label(r, lbl, size=10, color=DIM).pack(side="left")
@@ -1416,27 +1421,35 @@ class VentaPanel(BasePanel):
             setattr(self, attr, lw)
         srow("Subtotal:", "l_sub")
 
-        W_label(rf, "Descuento", size=10, color=DIM).pack(anchor="w", padx=12)
-        self.e_disc = W_entry(rf, "0", w=374); self.e_disc.insert(0,"0"); self.e_disc.pack(padx=12, pady=2)
+        W_label(bf, "Descuento", size=10, color=DIM).pack(anchor="w", padx=12)
+        self.e_disc = W_entry(bf, "0", w=374); self.e_disc.insert(0,"0"); self.e_disc.pack(padx=12, pady=2)
         self.e_disc.bind("<KeyRelease>", lambda _: self._upd_total())
-        ctk.CTkFrame(rf, fg_color="#333", height=1).pack(fill="x", padx=12, pady=4)
+        ctk.CTkFrame(bf, fg_color="#333", height=1).pack(fill="x", padx=12, pady=4)
         srow("TOTAL:", "l_total", OK)
 
-        W_label(rf, "Cliente", size=10, color=DIM).pack(anchor="w", padx=12, pady=(6,0))
+        W_label(bf, "Cliente", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
         clist = ["(sin cliente)"]+[f"{c['id']} – {c['name']}" for c in self.db.get_clients()]
-        self.cb_cli = W_combo(rf, clist, w=374); self.cb_cli.pack(padx=12, pady=2)
+        self.cb_cli = W_combo(bf, clist, w=374); self.cb_cli.pack(padx=12, pady=2)
 
-        W_label(rf, "Método de Pago", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
-        self.cb_pay = W_combo(rf, ["efectivo","tarjeta","transferencia","crédito","otro"], w=374)
+        W_label(bf, "Método de Pago", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
+        self.cb_pay = W_combo(bf, ["efectivo","tarjeta","transferencia","crédito","otro"], w=374)
         self.cb_pay.pack(padx=12, pady=2)
 
-        W_label(rf, "Notas (opcional)", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
-        self.e_notes = W_entry(rf, "", w=374); self.e_notes.pack(padx=12, pady=2)
+        W_label(bf, "Notas (opcional)", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
+        self.e_notes = W_entry(bf, "", w=374); self.e_notes.pack(padx=12, pady=2)
 
-        br = ctk.CTkFrame(rf, fg_color="transparent"); br.pack(fill="x", padx=_sc(12), pady=_sc(8))
+        br = ctk.CTkFrame(bf, fg_color="transparent"); br.pack(fill="x", padx=_sc(12), pady=(_sc(8), _sc(12)))
         W_btn(br, "🗑 Quitar",  self._remove, color="#444", w=100, h=36).pack(side="left", fill="x", expand=True)
         W_btn(br, "🧹 Limpiar", self._clear,  color="#444", w=100, h=36).pack(side="left", fill="x", expand=True, padx=(_sc(4), _sc(4)))
         W_btn(br, "✅ COBRAR",  self._checkout, color=OK, w=120, h=36).pack(side="left", fill="x", expand=True)
+
+        # ── Tabla del carrito (expande para llenar el espacio restante arriba) ──
+        frca = ctk.CTkFrame(rf, fg_color="#1a1a1a", corner_radius=8)
+        frca.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        self.ctree = make_tree(frca,
+            ("name","qty","price","sub"),
+            ("Producto","Cant","Precio","Subtotal"),
+            (155,50,92,92), height=5)
 
     # ── Lógica del carrito ────────────────────────────────────
     def _search_prod(self):
@@ -1575,11 +1588,13 @@ class VentaPanel(BasePanel):
                 f"No se pudo guardar la venta:\n\n{e}\n\nRevisa el archivo de log para más detalles.")
 
     def _gen_ticket(self, sid, sub, disc, total, payment, notes, cambio):
+        sym = self.db.cfg("currency_symbol")
+        bname = self.db.cfg("business_name"); btype = self.db.cfg("business_type")
+        phone = self.db.cfg("phone");         addr  = self.db.cfg("address")
+        # ── Siempre guardar ticket .txt como respaldo ──
         try:
             os.makedirs("tickets", exist_ok=True)
-            W  = 42; sym = self.db.cfg("currency_symbol")
-            bname = self.db.cfg("business_name"); btype = self.db.cfg("business_type")
-            phone = self.db.cfg("phone");         addr  = self.db.cfg("address")
+            W  = 42
             lines = ["="*W, bname.center(W)]
             if btype: lines.append(btype.center(W))
             if addr:  lines.append(addr.center(W))
@@ -1598,12 +1613,83 @@ class VentaPanel(BasePanel):
                       f"Pago: {payment.capitalize()}".ljust(W)]
             if cambio > 0: lines.append(f"Cambio: {sym}{cambio:.0f}".ljust(W))
             if notes: lines.append(f"Notas: {notes}".ljust(W))
-            lines += ["="*W, "¡Gracias por su compra!".center(W), "\n\n\n"]
+            lines += ["="*W, "Gracias por su compra!".center(W), "\n\n\n"]
             path = f"tickets/ticket_{sid}.txt"
             with open(path, "w", encoding="utf-8") as f: f.write("\n".join(lines))
-            log.info(f"Ticket generado: {os.path.abspath(path)}")
+            log.info(f"Ticket .txt generado: {os.path.abspath(path)}")
         except Exception as e:
-            log.warning(f"Error generando ticket: {e}")
+            log.warning(f"Error generando ticket .txt: {e}")
+        # ── Impresora térmica (si está habilitada) ──
+        if self.db.cfg("printer_enabled") == "1":
+            self._print_thermal(sid, sub, disc, total, payment, notes, cambio,
+                                sym, bname, btype, phone, addr)
+
+    def _print_thermal(self, sid, sub, disc, total, payment, notes, cambio,
+                       sym, bname, btype, phone, addr):
+        """Imprime ticket profesional en impresora térmica POS 80mm."""
+        if not HAS_ESCPOS:
+            log.warning("python-escpos no instalado — pip install python-escpos")
+            return
+        printer_name = self.db.cfg("printer_name").strip()
+        if not printer_name:
+            log.warning("Impresora térmica habilitada pero sin nombre configurado")
+            return
+        try:
+            p = Win32Raw(printer_name)
+            # ── Encabezado ──
+            p.set(align='center', bold=True, width=2, height=2)
+            p.text(bname + "\n")
+            p.set(align='center', bold=False, width=1, height=1)
+            if btype: p.text(btype + "\n")
+            if addr:  p.text(addr + "\n")
+            if phone: p.text(f"Tel: {phone}\n")
+            p.text("="*48 + "\n")
+            # ── Info de la venta ──
+            p.set(align='left')
+            p.text(f"Ticket: #{sid}\n")
+            p.text(f"Fecha:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            p.text(f"Cajero: {self.user['username']}\n")
+            p.text("-"*48 + "\n")
+            # ── Columnas ──
+            p.set(align='left', bold=True)
+            p.text(f"{'CANT':<6}{'PRODUCTO':<28}{'TOTAL':>14}\n")
+            p.set(bold=False)
+            p.text("-"*48 + "\n")
+            # ── Ítems ──
+            for it in self.cart:
+                qty  = f"{int(it['quantity'])}"
+                name = it["product_name"][:28]
+                tot  = f"{sym}{it['subtotal']:,.0f}"
+                p.text(f"{qty:<6}{name:<28}{tot:>14}\n")
+            p.text("-"*48 + "\n")
+            # ── Totales ──
+            p.set(align='right')
+            p.text(f"Subtotal: {sym}{sub:,.0f}\n")
+            if disc > 0:
+                p.text(f"Descuento: -{sym}{disc:,.0f}\n")
+            p.set(bold=True, width=2, height=2)
+            p.text(f"TOTAL: {sym}{total:,.0f}\n")
+            p.set(bold=False, width=1, height=1)
+            p.text("-"*48 + "\n")
+            # ── Pago ──
+            p.set(align='left')
+            p.text(f"Pago: {payment.capitalize()}\n")
+            if cambio > 0:
+                p.text(f"Cambio: {sym}{cambio:,.0f}\n")
+            if notes:
+                p.text(f"Notas: {notes}\n")
+            # ── Pie ──
+            p.text("="*48 + "\n")
+            p.set(align='center')
+            p.text("Gracias por su compra!\n")
+            p.text("\n\n\n")
+            p.cut()
+            p.close()
+            log.info(f"Ticket #{sid} impreso en '{printer_name}'")
+        except Exception as e:
+            log.error(f"Error imprimiendo en térmica: {e}")
+            messagebox.showwarning("Impresora",
+                f"No se pudo imprimir el ticket:\n{e}\n\nEl ticket .txt fue guardado como respaldo.")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2093,12 +2179,65 @@ class ConfigPanel(BasePanel):
         W_btn(logo_row, "📂  Seleccionar", _pick_logo, w=140, h=32).pack(side="left", padx=(8, 4))
         W_btn(logo_row, "✕  Quitar", _clear_logo, color="#444", w=90, h=32).pack(side="left")
 
+        # ── Sección: Impresora Térmica ────────────────────────────────
+        W_sep(frm)
+        W_label(frm, "🖨️  Impresora Térmica (POS 80mm)", bold=True, color=ACC).pack(pady=(12, 4))
+        esc_status = "✅ python-escpos instalado" if HAS_ESCPOS else "❌ python-escpos NO instalado (pip install python-escpos)"
+        esc_color = OK if HAS_ESCPOS else ERR
+        W_label(frm, esc_status, size=9, color=esc_color).pack()
+
+        pr_grid = ctk.CTkFrame(frm, fg_color="transparent")
+        pr_grid.pack(padx=30, pady=(8, 4), fill="x")
+
+        W_label(pr_grid, "Nombre de impresora (Windows)", size=10, color=DIM).grid(
+            row=0, column=0, sticky="w", pady=7, padx=(0, 20))
+        e_printer = W_entry(pr_grid, w=280)
+        pname = self.db.cfg("printer_name")
+        if pname: e_printer.insert(0, pname)
+        e_printer.grid(row=0, column=1, sticky="w")
+        self.entries["printer_name"] = e_printer
+
+        W_label(pr_grid, "Impresión automática al cobrar", size=10, color=DIM).grid(
+            row=1, column=0, sticky="w", pady=7, padx=(0, 20))
+        self._pr_switch = ctk.CTkSwitch(pr_grid, text="",
+            onvalue="1", offvalue="0",
+            font=("Segoe UI", _sc(10)))
+        if self.db.cfg("printer_enabled") == "1":
+            self._pr_switch.select()
+        self._pr_switch.grid(row=1, column=1, sticky="w")
+
+        def _test_printer():
+            name = e_printer.get().strip()
+            if not name:
+                messagebox.showwarning("Impresora", "Ingresa el nombre de la impresora"); return
+            if not HAS_ESCPOS:
+                messagebox.showerror("Impresora",
+                    "python-escpos no está instalado.\n\nEjecuta:\npip install python-escpos"); return
+            try:
+                tp = Win32Raw(name)
+                tp.set(align='center', bold=True, width=2, height=2)
+                tp.text(self.db.cfg('business_name') + "\n")
+                tp.set(align='center', bold=False, width=1, height=1)
+                tp.text("=" * 48 + "\n")
+                tp.text("Prueba de impresion\n")
+                tp.text("La impresora funciona correctamente\n")
+                tp.text("=" * 48 + "\n\n\n\n")
+                tp.cut()
+                tp.close()
+                messagebox.showinfo("✅ Impresora", f"Ticket de prueba enviado a:\n{name}")
+            except Exception as ex:
+                messagebox.showerror("❌ Error", f"No se pudo imprimir:\n\n{ex}")
+
+        W_btn(pr_grid, "🧪  Probar impresora", _test_printer,
+              color=WARN, w=200, h=32).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
         W_sep(frm)
         W_btn(frm, "💾  Guardar configuración", self._save, w=280, h=42).pack(pady=14)
         W_label(frm, f"Log del día: {_log_file}", size=9, color=DIM).pack(pady=(0, 10))
 
     def _save(self):
         for key, e in self.entries.items(): self.db.set_cfg(key, e.get().strip())
+        self.db.set_cfg("printer_enabled", self._pr_switch.get())
         messagebox.showinfo("✅ Guardado", "Configuración guardada.\nReinicia para aplicar cambios de nombre/logo.")
         log.info("Configuración actualizada")
 
