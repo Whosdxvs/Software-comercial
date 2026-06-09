@@ -1938,6 +1938,106 @@ class CierreCajaPanel(BasePanel):
 
 
 # ═══════════════════════════════════════════════════════════════
+# GASTOS
+# ═══════════════════════════════════════════════════════════════
+class GastosPanel(BasePanel):
+    def __init__(self, master, db, user):
+        super().__init__(master, db, user, "💸 Gastos Operativos")
+        self._build(); self._load()
+
+    def _build(self):
+        ctrl = ctk.CTkFrame(self, fg_color="transparent"); ctrl.pack(fill="x", pady=(0,8))
+        W_label(ctrl,"Desde:", size=10, color=DIM).pack(side="left")
+        self.e_d1 = W_entry(ctrl, w=120); self.e_d1.insert(0, date.today().isoformat()); self.e_d1.pack(side="left", padx=(4,12))
+        W_label(ctrl,"Hasta:", size=10, color=DIM).pack(side="left")
+        self.e_d2 = W_entry(ctrl, w=120); self.e_d2.insert(0, date.today().isoformat()); self.e_d2.pack(side="left", padx=4)
+        W_btn(ctrl,"🔍 Ver",   self._load,              w=90).pack(side="left", padx=8)
+        W_btn(ctrl,"Hoy",  lambda: self._range(0),  color="#333", w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"7d",   lambda: self._range(7),  color="#333", w=55).pack(side="left", padx=2)
+        W_btn(ctrl,"30d",  lambda: self._range(30), color="#333", w=60).pack(side="left", padx=2)
+        
+        W_btn(ctrl,"➕ Nuevo Gasto", self._new_expense, color=WARN, w=140).pack(side="right")
+
+        self.f_sum = ctk.CTkFrame(self, fg_color="transparent"); self.f_sum.pack(fill="x", pady=(0,8))
+        
+        frm = W_card(self); frm.pack(fill="both", expand=True)
+        self.tree = make_tree(frm,
+            ("id","date","category","amount","description","user"),
+            ("ID","Fecha","Categoría","Monto","Descripción","Usuario"),
+            (40,100,150,120,300,100))
+
+    def _range(self, days):
+        t = date.today()
+        self.e_d1.delete(0,"end"); self.e_d1.insert(0,(t-timedelta(days=days)).isoformat())
+        self.e_d2.delete(0,"end"); self.e_d2.insert(0,t.isoformat())
+        self._load()
+
+    def _load(self):
+        try:
+            d1 = self.e_d1.get().strip(); d2 = self.e_d2.get().strip()
+            if not d1 or not d2: return
+            
+            for w in self.f_sum.winfo_children(): w.destroy()
+            summ = self.db.expenses_summary(d1, d2)
+            
+            c = W_card(self.f_sum); c.pack(side="left", fill="x", padx=(0,5))
+            W_label(c, f"Total Gastos: {fmt(summ['total'])}", size=14, bold=True, color=WARN).pack(padx=20, pady=10)
+
+            self.tree.delete(*self.tree.get_children())
+            for e in self.db.get_expenses(d1, d2):
+                self.tree.insert("","end", values=(
+                    e["id"], e["date"], e["category"], fmt(e["amount"]), e["description"], e["uname"]
+                ))
+        except Exception as exc:
+            messagebox.showerror("Error", f"Error cargando gastos:\n{exc}")
+
+    def _new_expense(self):
+        dlg = ctk.CTkToplevel(self); dlg.title("Registrar Nuevo Gasto")
+        dlg.geometry(f"{_sc(380)}x{_sc(480)}"); dlg.grab_set(); dlg.configure(fg_color=BG)
+        
+        W_label(dlg, "Nuevo Gasto", size=16, bold=True, color=ACC).pack(pady=(20,10))
+        
+        W_label(dlg, "Categoría *", size=10, color=DIM).pack(anchor="w", padx=_sc(30))
+        cats = ["Arriendo", "Servicios Públicos", "Transporte", "Insumos/Papelería", "Nómina", "Mantenimiento", "Otro"]
+        cb_cat = W_combo(dlg, cats, w=320)
+        cb_cat.pack(padx=_sc(30), pady=4)
+        
+        W_label(dlg, "Monto *", size=10, color=DIM).pack(anchor="w", padx=_sc(30), pady=(10,0))
+        e_amount = W_entry(dlg, w=320); e_amount.pack(padx=_sc(30), pady=4)
+        
+        W_label(dlg, "Descripción (opcional)", size=10, color=DIM).pack(anchor="w", padx=_sc(30), pady=(10,0))
+        e_desc = W_entry(dlg, w=320); e_desc.pack(padx=_sc(30), pady=4)
+        
+        # Checkbox para descontar de caja
+        chk_var = tk.StringVar(value="1")
+        chk = ctk.CTkCheckBox(dlg, text="Sacar dinero de la caja registradora actual\n(Resta al cuadre del día)", 
+                              variable=chk_var, onvalue="1", offvalue="0",
+                              font=("Segoe UI", _sc(10)), text_color=DIM)
+        chk.pack(anchor="w", padx=_sc(30), pady=20)
+        
+        def save():
+            cat = cb_cat.get().strip()
+            try: amount = float(e_amount.get().strip())
+            except: amount = 0
+            if not cat or amount <= 0:
+                messagebox.showerror("Error", "Categoría y monto mayor a 0 son obligatorios", parent=dlg); return
+            
+            affect_cash = (chk_var.get() == "1")
+            sess_id = None
+            if affect_cash:
+                sess = self.db.get_active_session(self.user["id"])
+                if not sess:
+                    messagebox.showerror("Error", "No hay un turno de caja abierto para registrar el egreso.", parent=dlg); return
+                sess_id = sess["id"]
+                
+            self.db.add_expense(self.user["id"], sess_id, cat, amount, e_desc.get().strip(), affect_cash)
+            dlg.destroy(); self._load()
+            messagebox.showinfo("✅", f"Gasto registrado: {fmt(amount)}")
+            
+        W_btn(dlg, "💾 Guardar Gasto", save, w=320, h=42, color=OK).pack(pady=(10, 20))
+
+
+# ═══════════════════════════════════════════════════════════════
 # INFORMES
 # ═══════════════════════════════════════════════════════════════
 class InformesPanel(BasePanel):
