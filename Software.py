@@ -214,6 +214,7 @@ class DB:
             name TEXT NOT NULL, document TEXT NOT NULL DEFAULT '',
             phone TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
             address TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+            debt REAL NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (date('now')));
         CREATE TABLE IF NOT EXISTS cash_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,6 +244,14 @@ class DB:
             product_id INTEGER REFERENCES products(id),
             product_name TEXT NOT NULL, quantity REAL NOT NULL,
             unit_price REAL NOT NULL, subtotal REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS client_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            session_id INTEGER REFERENCES cash_sessions(id),
+            amount REAL NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            timestamp TEXT NOT NULL);
         """)
         self.con.commit()
         self._migrate()
@@ -257,6 +266,7 @@ class DB:
             ("products",       "min_stock",     "INTEGER NOT NULL DEFAULT 5"),
             ("products",       "unit",          "TEXT NOT NULL DEFAULT 'unidad'"),
             ("cash_sessions",  "actual_cash",   "REAL DEFAULT 0"),
+            ("clients",        "debt",          "REAL NOT NULL DEFAULT 0"),
         ]
         existing = {}
         for table, col, defn in migrations:
@@ -454,6 +464,19 @@ class DB:
     def upd_client(self, id, name, doc, phone, email, addr, notes):
         self.run("UPDATE clients SET name=?,document=?,phone=?,email=?,address=?,notes=? WHERE id=?", (name,doc,phone,email,addr,notes,id))
     def del_client(self, id): self.run("DELETE FROM clients WHERE id=?", (id,))
+    def add_client_payment(self, client_id, user_id, session_id, amount, notes):
+        # Registrar el pago
+        self.run("INSERT INTO client_payments(client_id,user_id,session_id,amount,notes,timestamp) VALUES(?,?,?,?,?,?)",
+                 (client_id, user_id, session_id, amount, notes, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        # Reducir deuda
+        self.run("UPDATE clients SET debt = debt - ? WHERE id=?", (amount, client_id))
+        # Registrar en la caja si hay turno abierto
+        if session_id:
+            client = self.one("SELECT name FROM clients WHERE id=?", (client_id,))
+            cname = client["name"] if client else str(client_id)
+            desc = f"Abono de deuda: {cname}"
+            if notes: desc += f" ({notes})"
+            self.add_cash_transaction(session_id, "income", amount, desc)
 
     # ── Caja / Sesiones ──────────────────────────────────────
     def get_active_session(self, user_id):
@@ -507,6 +530,11 @@ class DB:
                      " VALUES(?,?,?,?,?,?)",
                      (sid, i["product_id"], i["product_name"], i["quantity"], i["unit_price"], i["subtotal"]))
             self.adj_stock(i["product_id"], -i["quantity"])
+        
+        # ── Si es a crédito, aumentar deuda del cliente ──
+        if payment == "crédito" and client_id:
+            self.run("UPDATE clients SET debt = debt + ? WHERE id=?", (total, client_id))
+            
         log.info(f"Venta #{sid}: {len(items)} ítem(s), total ${total:.0f}, pago:{payment}")
         return sid
 
@@ -1290,12 +1318,14 @@ class ClientesPanel(BasePanel):
         self.e_s.bind("<KeyRelease>", lambda _: self._refresh())
         W_btn(tb,"➕ Nuevo",   self._new,  w=110).pack(side="left", padx=(10,0))
         W_btn(tb,"✏️ Editar",  self._edit, w=110, color="#444").pack(side="left", padx=4)
-        W_btn(tb,"🗑 Eliminar",self._del,  w=110, color=ERR).pack(side="left")
+        W_btn(tb,"🗑 Eliminar",self._del,  w=110, color=ERR).pack(side="left", padx=(0,10))
+        W_btn(tb,"💰 Abonar",  self._pay_debt, w=110, color=OK).pack(side="left")
         frm = W_card(self); frm.pack(fill="both", expand=True)
         self.tree = make_tree(frm,
-            ("id","name","document","phone","email","address","created_at"),
-            ("ID","Nombre","Documento","Teléfono","Email","Dirección","Registro"),
-            (40,175,100,110,175,175,90))
+            ("id","name","document","phone","email","debt","address","created_at"),
+            ("ID","Nombre","Documento","Teléfono","Email","Deuda","Dirección","Registro"),
+            (40,175,100,110,175,90,175,90))
+        self.tree.tag_configure("debt", foreground=WARN)
         self.tree.bind("<<TreeviewSelect>>", lambda _: self._on_sel())
         self.tree.bind("<Double-1>", lambda _: self._edit())
 
@@ -1306,7 +1336,46 @@ class ClientesPanel(BasePanel):
     def _refresh(self):
         self.tree.delete(*self.tree.get_children())
         for c in self.db.get_clients(self.e_s.get().strip()):
-            self.tree.insert("","end", values=(c["id"],c["name"],c["document"],c["phone"],c["email"],c["address"],c["created_at"]))
+            tag = ("debt",) if c["debt"] > 0 else ()
+            self.tree.insert("","end", tags=tag, values=(
+                c["id"],c["name"],c["document"],c["phone"],c["email"],
+                fmt(c["debt"]),c["address"],c["created_at"]))
+
+    def _pay_debt(self):
+        if not self._sel: messagebox.showinfo("Info","Selecciona un cliente"); return
+        client = next((c for c in self.db.get_clients() if c["id"]==self._sel), None)
+        if not client or client["debt"] <= 0:
+            messagebox.showinfo("Info", "El cliente seleccionado no tiene deuda activa."); return
+            
+        dlg = ctk.CTkToplevel(self); dlg.title("Abonar a Deuda"); dlg.geometry(f"{_sc(360)}x{_sc(340)}"); dlg.grab_set()
+        dlg.configure(fg_color=BG)
+        W_label(dlg, f"Abono: {client['name']}", size=14, bold=True, color=ACC).pack(pady=(20,4))
+        W_label(dlg, f"Deuda actual: {fmt(client['debt'])}", size=11, color=WARN).pack(pady=(0,14))
+        
+        W_label(dlg, "Monto a abonar:", size=10, color=DIM).pack(anchor="w", padx=_sc(26))
+        e_amount = W_entry(dlg, w=300); e_amount.pack(padx=_sc(26), pady=2)
+        e_amount.focus()
+        
+        W_label(dlg, "Notas (opcional):", size=10, color=DIM).pack(anchor="w", padx=_sc(26), pady=(10,0))
+        e_notes = W_entry(dlg, w=300); e_notes.pack(padx=_sc(26), pady=2)
+        
+        def save():
+            try: amount = float(e_amount.get().strip() or 0)
+            except: amount = 0
+            if amount <= 0: messagebox.showerror("Error", "Ingresa un monto válido mayor a 0", parent=dlg); return
+            if amount > client["debt"]:
+                messagebox.showerror("Error", f"El abono no puede superar la deuda ({fmt(client['debt'])})", parent=dlg); return
+            
+            sess = self.db.get_active_session(self.user["id"])
+            sess_id = sess["id"] if sess else None
+            self.db.add_client_payment(client["id"], self.user["id"], sess_id, amount, e_notes.get().strip())
+            
+            dlg.destroy(); self._refresh()
+            msg = f"Abono de {fmt(amount)} registrado exitosamente."
+            if not sess_id: msg += "\n(No sumado a caja porque no hay turno abierto)"
+            messagebox.showinfo("Abono Registrado", msg)
+            
+        W_btn(dlg, "✅ Confirmar Abono", save, w=300, h=40, color=OK).pack(pady=20)
 
     def _form(self, title, data=None):
         dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(430)}x{_sc(430)}"); dlg.grab_set()
@@ -1527,6 +1596,11 @@ class VentaPanel(BasePanel):
         sub   = sum(i["subtotal"] for i in self.cart)
         total = sub - disc
         payment = self.cb_pay.get()
+        if payment == "crédito":
+            cv = self.cb_cli.get()
+            if not cv or cv == "(sin cliente)":
+                messagebox.showerror("Crédito", "Para ventas a crédito (fiado) es OBLIGATORIO seleccionar un cliente.")
+                return
 
         if payment == "efectivo":
             # ── Calculadora de cambio ──
