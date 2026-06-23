@@ -1,4 +1,4 @@
-ÿþ# GestionPro v2.0
+# GestionPro v2.0
 
 ## FLUJO DE DESARROLLO
 
@@ -67,7 +67,7 @@ Aparecera el menu:
 ========================================================
 ```
 
-Seleccionar la opcion deseada. El programa imprimira la llave, por ejemplo:
+Seleccionar la opcion deseada. El programa imprimira la llave generada, por ejemplo:
 ```
 **********************************************************
   LLAVE GENERADA -- PERMANENTE
@@ -111,4 +111,4 @@ MmFjM2ExOTA=
 | `Software.py` | Codigo fuente principal |
 | `generar_licencia.py` | Script privado del desarrollador (NO en repo) |
 | `gestionpro.db` | Base de datos SQLite del cliente (NO en repo) |
-| `.venv/` | Entorno virtual Python (NO en repo
+| `.venv/` | Entorno virtual Python (NO en repo) |
