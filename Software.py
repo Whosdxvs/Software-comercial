@@ -51,85 +51,158 @@ logging.basicConfig(
 )
 log = logging.getLogger("GestiónPro")
 
-# ── Licencia ─────────────────────────────────────────────────
-_LICENSE_SALT = b"G3st10nPr0_2026_S4lt_S3cr3t4_X7k9Qm"
-_LICENSE_FILE = "licencia.dat"
-_LIC_INFO: dict = {}   # se llena en main() tras validar
+# ── Licencia (sistema de key de uso único) ───────────────────
+import base64 as _b64
+import uuid as _uuid
 
-def _verificar_licencia():
-    """Valida el archivo licencia.dat con HMAC-SHA256.
-    Retorna un dict con info de la licencia si es válida, o None si falla.
-    Claves del dict: cliente, expira, dias_restantes, permanente.
+_SECRET_KEY = b"G3st10nPr0_2026_KEY_S3cr3t4_X7k9Qm"
+
+class LicenseManager:
+    """Gestiona la validación y activación de llaves de licencia.
+    La llave se almacena en la tabla config de la BD SQLite.
     """
-    try:
-        path = os.path.join(os.path.dirname(os.path.abspath(
-            sys.executable if getattr(sys, 'frozen', False) else __file__
-        )), _LICENSE_FILE)
-        if not os.path.isfile(path):
-            log.error(f"Archivo de licencia no encontrado: {path}")
-            return None
-        with open(path, "r", encoding="utf-8") as f:
-            lic = json.load(f)
-        cliente = lic.get("cliente", "")
-        expira  = lic.get("expira", "")
-        firma   = lic.get("firma", "")
-        if not cliente or not expira or not firma:
-            log.error("Licencia incompleta: faltan campos obligatorios")
-            return None
-        # Verificar firma HMAC-SHA256
-        payload = f"{cliente.strip().upper()}|{expira}".encode("utf-8")
-        firma_esperada = hmac.new(_LICENSE_SALT, payload, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(firma, firma_esperada):
-            log.error("Firma de licencia inválida")
-            return None
-        # Licencia permanente
-        if expira.upper() == "PERMANENTE":
-            log.info(f"Licencia PERMANENTE — Cliente: {cliente}")
-            return {"cliente": cliente, "expira": expira,
-                    "dias_restantes": -1, "permanente": True}
-        # Verificar expiración
-        fecha_exp = datetime.strptime(expira, "%Y-%m-%d").date()
-        if date.today() > fecha_exp:
-            log.error(f"Licencia expirada el {expira}")
-            return None
-        dias_rest = (fecha_exp - date.today()).days
-        log.info(f"Licencia válida — Cliente: {cliente} — Expira: {expira} ({dias_rest} días restantes)")
-        return {"cliente": cliente, "expira": expira,
-                "dias_restantes": dias_rest, "permanente": False}
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
-        log.error(f"Error al leer licencia: {e}")
-        return None
-    except Exception as e:
-        log.error(f"Error inesperado en validación de licencia: {e}")
-        return None
+    def __init__(self, db):
+        self.db = db
 
-def _mostrar_error_licencia():
-    """Muestra una ventana de error de licencia y cierra la aplicación."""
-    try:
-        root = ctk.CTk()
-        root.title("GestiónPro — Licencia")
-        w, h = 480, 300
-        root.geometry(f"{w}x{h}")
-        root.resizable(False, False)
-        root.configure(fg_color="#181818")
-        card = ctk.CTkFrame(root, fg_color="#252525", corner_radius=12)
-        card.pack(expand=True, padx=30, pady=30, fill="both")
-        ctk.CTkLabel(card, text="🔒", font=("Segoe UI", 48)).pack(pady=(24, 4))
-        ctk.CTkLabel(card, text="Licencia no válida",
-                     font=("Segoe UI", 18, "bold"), text_color="#e74c3c").pack()
-        msg = ("No se encontró un archivo de licencia válido.\n"
-               "Contacte al proveedor del software para\n"
-               "obtener o renovar su licencia.")
-        ctk.CTkLabel(card, text=msg, font=("Segoe UI", 11),
-                     text_color="#888888", justify="center").pack(pady=(8, 16))
-        ctk.CTkButton(card, text="Cerrar", command=root.destroy,
-                      width=160, height=38, fg_color="#e74c3c",
-                      hover_color="#c0392b",
-                      font=("Segoe UI", 12, "bold")).pack(pady=(0, 20))
-        root.mainloop()
-    except Exception:
-        pass  # Si falla la GUI, simplemente salimos
-    sys.exit(1)
+    def validate_license_string(self, key_str: str) -> dict:
+        """Verifica criptográficamente la llave.
+        Retorna un dict con los datos del payload o lanza ValueError.
+        """
+        try:
+            decoded = _b64.b64decode(key_str).decode("utf-8")
+            payload_str, signature = decoded.split("|", 1)
+            expected = hmac.new(_SECRET_KEY, payload_str.encode("utf-8"),
+                                hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, signature):
+                raise ValueError("Firma inválida. La llave fue alterada.")
+            return json.loads(payload_str)
+        except (ValueError, KeyError):
+            raise
+        except Exception:
+            raise ValueError("Llave de licencia inválida o corrupta.")
+
+    def check_current_status(self) -> dict:
+        """Verifica el estado de la licencia almacenada en la BD.
+        Retorna: {"valid": bool, "reason": str}
+        """
+        lic_key = self.db.cfg("license_key")
+        if not lic_key:
+            return {"valid": False, "reason": "No hay licencia instalada."}
+        try:
+            payload = self.validate_license_string(lic_key)
+        except ValueError as e:
+            return {"valid": False, "reason": str(e)}
+
+        # Protección anti-manipulación de reloj
+        last_seen = self.db.cfg("license_last_seen_date")
+        today_iso = date.today().isoformat()
+        if last_seen and today_iso < last_seen:
+            return {"valid": False,
+                    "reason": "Se detectó manipulación del reloj del sistema. Licencia bloqueada."}
+        self.db.set_cfg("license_last_seen_date", today_iso)
+
+        if payload.get("permanent", False):
+            log.info("Licencia PERMANENTE activa.")
+            return {"valid": True, "reason": "Licencia permanente."}
+
+        # Calcular expiración desde la fecha de activación
+        activation_str = self.db.cfg("license_activation_date")
+        if not activation_str:
+            return {"valid": False, "reason": "Error en la fecha de activación."}
+        activation = date.fromisoformat(activation_str)
+        days_allowed = payload.get("days", 0)
+        days_passed = (date.today() - activation).days
+        if days_passed > days_allowed:
+            return {"valid": False,
+                    "reason": f"La licencia de {days_allowed} días ha expirado."}
+        remaining = days_allowed - days_passed
+        log.info(f"Licencia válida — {remaining} día(s) restante(s).")
+        return {"valid": True, "reason": f"Quedan {remaining} días de licencia."}
+
+    def activate(self, key_str: str):
+        """Activa una nueva llave y la guarda en la BD. Lanza ValueError si falla."""
+        payload = self.validate_license_string(key_str)
+        # Si es la misma llave ya guardada, verificar que siga vigente
+        current_key = self.db.cfg("license_key")
+        if current_key and key_str == current_key:
+            status = self.check_current_status()
+            if not status["valid"]:
+                raise ValueError("Esta llave ya fue utilizada y ha expirado.")
+            return True
+        # Guardar llave nueva
+        self.db.set_cfg("license_key", key_str)
+        self.db.set_cfg("license_activation_date", date.today().isoformat())
+        self.db.set_cfg("license_last_seen_date", date.today().isoformat())
+        log.info(f"Licencia activada — ID: {payload.get('id','?')}")
+        return True
+
+
+class ActivationWindow(ctk.CTk):
+    """Ventana de activación: el usuario pega su llave de licencia."""
+    def __init__(self, db):
+        super().__init__()
+        self._db = db
+        self._lm = LicenseManager(db)
+        self.success = False
+        self.title("GestiónPro — Activación de Software")
+        self.geometry("480x340")
+        self.resizable(False, False)
+        self.configure(fg_color="#181818")
+        self._build()
+
+    def _build(self):
+        card = ctk.CTkFrame(self, fg_color="#252525", corner_radius=12)
+        card.pack(fill="both", expand=True, padx=24, pady=24)
+
+        ctk.CTkLabel(card, text="🔒", font=("Segoe UI", 44)).pack(pady=(18, 0))
+        ctk.CTkLabel(card, text="Activación Requerida",
+                     font=("Segoe UI", 18, "bold"), text_color="#f0f0f0").pack(pady=(4, 0))
+
+        status = self._lm.check_current_status()
+        reason = status.get("reason", "Introduce tu llave de licencia.")
+        ctk.CTkLabel(card, text=reason, font=("Segoe UI", 10),
+                     text_color="#e74c3c", wraplength=380).pack(pady=(6, 14))
+
+        ctk.CTkLabel(card, text="Llave de Licencia:", font=("Segoe UI", 10),
+                     text_color="#888888").pack(anchor="w", padx=30)
+        self._e_key = ctk.CTkEntry(card, width=400, placeholder_text="Pega aquí tu código de licencia...",
+                                   font=("Segoe UI", 10))
+        self._e_key.pack(padx=30, pady=(4, 18))
+
+        ctk.CTkButton(card, text="Activar Software", command=self._activate,
+                      width=220, height=42, fg_color="#4682DC", hover_color="#5a96f0",
+                      font=("Segoe UI", 12, "bold")).pack()
+        ctk.CTkLabel(card, text="Contacta a tu proveedor para obtener una licencia.",
+                     font=("Segoe UI", 9), text_color="#555555").pack(side="bottom", pady=14)
+
+    def _activate(self):
+        from tkinter import messagebox
+        key = self._e_key.get().strip()
+        if not key:
+            messagebox.showerror("Error", "Debes ingresar una llave.", parent=self)
+            return
+        try:
+            self._lm.activate(key)
+            messagebox.showinfo("Éxito",
+                "¡Software activado correctamente!\nGracias por confiar en GestiónPro.", parent=self)
+            self.success = True
+            self.destroy()
+        except ValueError as e:
+            messagebox.showerror("Error de Activación", str(e), parent=self)
+            self._e_key.delete(0, "end")
+
+
+def check_license_and_run(db) -> bool:
+    """Verifica la licencia. Si es válida retorna True.
+    Si no, muestra la ventana de activación. Retorna True solo si se activa con éxito.
+    """
+    lm = LicenseManager(db)
+    status = lm.check_current_status()
+    if status["valid"]:
+        return True
+    win = ActivationWindow(db)
+    win.mainloop()
+    return win.success
 
 # ── Paleta ────────────────────────────────────────────────────
 BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"
@@ -298,14 +371,17 @@ class DB:
             ("address", ""), ("phone", ""), ("tax_percent", "0"),
             ("low_stock_limit", "5"), ("logo_path", ""),
             ("printer_name", ""), ("printer_enabled", "0"),
+            ("printer_width", "80mm (estándar)"),
         ]:
             self.con.execute("INSERT OR IGNORE INTO config VALUES(?,?)", (k, v))
         self.con.execute(
             "INSERT OR IGNORE INTO users(username,password,role) VALUES(?,?,?)",
             ("admin", self._hp("admin123"), "admin"))
-        for cat in ["General","Electrónica","Ropa","Alimentos","Hogar",
-                    "Deportes","Libros","Bebidas","Juguetes","Salud"]:
-            self.con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
+        # Solo sembrar categorías si la tabla está vacía (primer arranque)
+        if not self.all("SELECT 1 FROM categories LIMIT 1"):
+            for cat in ["General","Electrónica","Ropa","Alimentos","Hogar",
+                        "Deportes","Libros","Bebidas","Juguetes","Salud"]:
+                self.con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
         self.con.commit()
 
     def _hp(self, pw): return hashlib.sha256(pw.encode()).hexdigest()
@@ -977,18 +1053,18 @@ class LoginWindow(ctk.CTk):
         if logo_path and os.path.isfile(logo_path):
             try:
                 from PIL import Image
-                img_w, img_h = _sc(100), _sc(132)
                 pil_img = Image.open(logo_path).convert("RGBA")
-                # Eliminar fondo negro: píxeles oscuros → transparentes
-                pil_img.putdata([
-                    (r, g, b, 0) if r < 50 and g < 50 and b < 50 else (r, g, b, a)
-                    for r, g, b, a in pil_img.getdata()
-                ])
-                pil_img = pil_img.resize((img_w, img_h), Image.LANCZOS)
+                # Redimensionar proporcional: máx 160×110px
+                max_w, max_h = _sc(160), _sc(110)
+                orig_w, orig_h = pil_img.size
+                ratio = min(max_w / orig_w, max_h / orig_h)
+                new_w = max(1, int(orig_w * ratio))
+                new_h = max(1, int(orig_h * ratio))
+                pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
                 ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img,
-                                       size=(img_w, img_h))
+                                       size=(new_w, new_h))
                 ctk.CTkLabel(card, image=ctk_img, text="",
-                             fg_color="transparent").pack(pady=(_sc(20), _sc(4)))
+                             fg_color="transparent").pack(pady=(_sc(18), _sc(6)))
                 logo_shown = True
             except Exception:
                 pass
@@ -2331,40 +2407,70 @@ class ConfigPanel(BasePanel):
         self._build()
 
     def _build(self):
-        frm = W_card(self); frm.pack(fill="both", expand=True)
-        W_label(frm, "Datos del negocio", bold=True, color=ACC).pack(pady=(16, 6))
-        W_sep(frm)
+        # ── Contenedor principal scrollable ──────────────────────────
+        sf = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        sf.pack(fill="both", expand=True)
+
+        # ── Dos columnas ─────────────────────────────────────────────
+        cols = ctk.CTkFrame(sf, fg_color="transparent")
+        cols.pack(fill="both", expand=True)
+        cols.columnconfigure(0, weight=1)
+        cols.columnconfigure(1, weight=1)
+
+        # ══════════════════════════════════════════════════════════════
+        # COLUMNA IZQUIERDA — Datos del negocio
+        # ══════════════════════════════════════════════════════════════
+        left = W_card(cols)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6), pady=0)
+
+        W_label(left, "Datos del negocio", bold=True, color=ACC).pack(pady=(16, 4))
+        W_sep(left)
+
         fields = [
-            ("Nombre del negocio",           "business_name"),
-            ("Tipo de negocio",              "business_type"),
-            ("Símbolo de moneda (ej: $)",    "currency_symbol"),
-            ("Código de moneda (ej: COP)",   "currency_code"),
-            ("Dirección",                    "address"),
-            ("Teléfono / Contacto",          "phone"),
-            ("% Impuesto (0 = sin impuesto)","tax_percent"),
-            ("Stock mínimo por defecto",     "low_stock_limit"),
+            ("Nombre del negocio",            "business_name"),
+            ("Tipo de negocio",               "business_type"),
+            ("Símbolo de moneda (ej: $)",     "currency_symbol"),
+            ("Código de moneda (ej: COP)",    "currency_code"),
+            ("Dirección",                     "address"),
+            ("Teléfono / Contacto",           "phone"),
+            ("% Impuesto (0 = sin impuesto)", "tax_percent"),
+            ("Stock mínimo por defecto",      "low_stock_limit"),
+            ("Máximo descuadre sin admin (0=sin límite)", "max_diff_allowed"),
         ]
         self.entries = {}
-        grid = ctk.CTkFrame(frm, fg_color="transparent"); grid.pack(padx=30, pady=10, fill="x")
+        grid_l = ctk.CTkFrame(left, fg_color="transparent")
+        grid_l.pack(padx=20, pady=10, fill="x")
         for i, (lbl, key) in enumerate(fields):
-            W_label(grid, lbl, size=10, color=DIM).grid(row=i, column=0, sticky="w", pady=7, padx=(0, 20))
-            e = W_entry(grid, w=280)
+            W_label(grid_l, lbl, size=10, color=DIM).grid(
+                row=i, column=0, sticky="w", pady=6, padx=(0, 16))
+            e = W_entry(grid_l, w=200)
             v = self.db.cfg(key)
             if v: e.insert(0, v)
             e.grid(row=i, column=1, sticky="w")
             self.entries[key] = e
 
-        # ── Sección: Logo del negocio ────────────────────────────────
-        W_sep(frm)
-        W_label(frm, "Logo del negocio", bold=True, color=ACC).pack(pady=(12, 4))
-        W_label(frm, "Aparece en la pantalla de inicio de sesión (PNG, JPG, WEBP)",
-                size=9, color=DIM).pack()
+        W_sep(left)
+        W_btn(left, "💾  Guardar configuración general", self._save,
+              w=300, h=42).pack(pady=(12, 6))
+        W_label(left, f"Log del día: {_log_file}", size=9, color=DIM).pack(pady=(0, 12))
 
-        logo_row = ctk.CTkFrame(frm, fg_color="transparent")
-        logo_row.pack(fill="x", padx=30, pady=(8, 4))
+        # ══════════════════════════════════════════════════════════════
+        # COLUMNA DERECHA — Logo + Impresora POS
+        # ══════════════════════════════════════════════════════════════
+        right = W_card(cols)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=0)
+
+        # ── Logo ────────────────────────────────────────────────────
+        W_label(right, "Logo del negocio", bold=True, color=ACC).pack(pady=(16, 2))
+        W_label(right, "Aparece en la pantalla de inicio de sesión",
+                size=9, color=DIM).pack()
+        W_sep(right)
+
+        logo_row = ctk.CTkFrame(right, fg_color="transparent")
+        logo_row.pack(fill="x", padx=20, pady=(10, 8))
         current = self.db.cfg("logo_path") or ""
         self._logo_lbl = W_label(logo_row,
-            os.path.basename(current) if current else "Sin logo seleccionado",
+            os.path.basename(current) if current else "Sin logo",
             size=10, color=OK if current else DIM)
         self._logo_lbl.pack(side="left", fill="x", expand=True)
 
@@ -2379,73 +2485,117 @@ class ConfigPanel(BasePanel):
 
         def _clear_logo():
             self.db.set_cfg("logo_path", "")
-            self._logo_lbl.configure(text="Sin logo seleccionado", text_color=DIM)
+            self._logo_lbl.configure(text="Sin logo", text_color=DIM)
             log.info("Logo eliminado")
 
-        W_btn(logo_row, "📂  Seleccionar", _pick_logo, w=140, h=32).pack(side="left", padx=(8, 4))
+        W_btn(logo_row, "📂  Seleccionar", _pick_logo, w=140, h=32).pack(side="left", padx=(4, 4))
         W_btn(logo_row, "✕  Quitar", _clear_logo, color="#444", w=90, h=32).pack(side="left")
 
-        # ── Sección: Impresora Térmica ────────────────────────────────
-        W_sep(frm)
-        W_label(frm, "🖨️  Impresora Térmica (POS 80mm)", bold=True, color=ACC).pack(pady=(12, 4))
-        esc_status = "✅ python-escpos instalado" if HAS_ESCPOS else "❌ python-escpos NO instalado (pip install python-escpos)"
-        esc_color = OK if HAS_ESCPOS else ERR
-        W_label(frm, esc_status, size=9, color=esc_color).pack()
+        # ── Impresora POS ────────────────────────────────────────────
+        W_sep(right)
+        W_label(right, "🖨  Impresora POS", bold=True, color=ACC).pack(pady=(14, 2))
+        W_label(right, "Configura tu impresora térmica", size=9, color=DIM).pack()
+        W_sep(right)
 
-        pr_grid = ctk.CTkFrame(frm, fg_color="transparent")
-        pr_grid.pack(padx=30, pady=(8, 4), fill="x")
+        pr_grid = ctk.CTkFrame(right, fg_color="transparent")
+        pr_grid.pack(padx=20, pady=(10, 8), fill="x")
+        pr_grid.columnconfigure(1, weight=1)
 
-        W_label(pr_grid, "Nombre de impresora (Windows)", size=10, color=DIM).grid(
-            row=0, column=0, sticky="w", pady=7, padx=(0, 20))
-        e_printer = W_entry(pr_grid, w=280)
-        pname = self.db.cfg("printer_name")
-        if pname: e_printer.insert(0, pname)
-        e_printer.grid(row=0, column=1, sticky="w")
-        self.entries["printer_name"] = e_printer
+        # ── Lista de impresoras via pywin32 ──────────────────────────
+        def _get_printers():
+            try:
+                import win32print
+                printers = [p[2] for p in win32print.EnumPrinters(
+                    win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+                return printers if printers else ["(sin impresoras)"]
+            except Exception:
+                return ["(pywin32 no disponible)"]
 
-        W_label(pr_grid, "Impresión automática al cobrar", size=10, color=DIM).grid(
-            row=1, column=0, sticky="w", pady=7, padx=(0, 20))
-        self._pr_switch = ctk.CTkSwitch(pr_grid, text="",
-            onvalue="1", offvalue="0",
-            font=("Segoe UI", _sc(10)))
-        if self.db.cfg("printer_enabled") == "1":
-            self._pr_switch.select()
-        self._pr_switch.grid(row=1, column=1, sticky="w")
+        saved_printer = self.db.cfg("printer_name") or ""
+        printer_list = _get_printers()
+        if saved_printer and saved_printer not in printer_list:
+            printer_list.insert(0, saved_printer)
+
+        W_label(pr_grid, "Impresora", size=10, color=DIM).grid(
+            row=0, column=0, sticky="w", pady=6, padx=(0, 12))
+        self._cb_printer = W_combo(pr_grid, printer_list, w=220)
+        if saved_printer and saved_printer in printer_list:
+            self._cb_printer.set(saved_printer)
+        elif printer_list:
+            self._cb_printer.set(printer_list[0])
+        self._cb_printer.grid(row=0, column=1, sticky="w")
+
+        W_label(pr_grid, "Ancho", size=10, color=DIM).grid(
+            row=1, column=0, sticky="w", pady=6, padx=(0, 12))
+        widths = ["58mm", "80mm (estándar)", "104mm"]
+        saved_w = self.db.cfg("printer_width") or "80mm (estándar)"
+        self._cb_width = W_combo(pr_grid, widths, w=220)
+        self._cb_width.set(saved_w if saved_w in widths else widths[1])
+        self._cb_width.grid(row=1, column=1, sticky="w")
+
+        # Checkbox impresión automática
+        self._pr_auto_var = tk.IntVar(
+            value=1 if self.db.cfg("printer_enabled") == "1" else 0)
+        ctk.CTkCheckBox(pr_grid, text="Imprimir automáticamente al cobrar",
+                        variable=self._pr_auto_var,
+                        font=("Segoe UI", _sc(10))).grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+
+        def _save_printer():
+            name = self._cb_printer.get().strip()
+            self.db.set_cfg("printer_name", name)
+            self.db.set_cfg("printer_width", self._cb_width.get())
+            self.db.set_cfg("printer_enabled", str(self._pr_auto_var.get()))
+            messagebox.showinfo("✅ Impresora", f"Configuración guardada:\n{name}")
+            log.info(f"Impresora guardada: {name}")
 
         def _test_printer():
-            name = e_printer.get().strip()
-            if not name:
-                messagebox.showwarning("Impresora", "Ingresa el nombre de la impresora"); return
-            if not HAS_ESCPOS:
-                messagebox.showerror("Impresora",
-                    "python-escpos no está instalado.\n\nEjecuta:\npip install python-escpos"); return
+            name = self._cb_printer.get().strip()
+            if not name or name.startswith("("):
+                messagebox.showwarning("Impresora", "Selecciona una impresora válida"); return
             try:
-                tp = Win32Raw(name)
-                tp.set(align='center', bold=True, width=2, height=2)
-                tp.text(self.db.cfg('business_name') + "\n")
-                tp.set(align='center', bold=False, width=1, height=1)
-                tp.text("=" * 48 + "\n")
-                tp.text("Prueba de impresion\n")
-                tp.text("La impresora funciona correctamente\n")
-                tp.text("=" * 48 + "\n\n\n\n")
-                tp.cut()
-                tp.close()
-                messagebox.showinfo("✅ Impresora", f"Ticket de prueba enviado a:\n{name}")
+                import win32print, win32api
+                bname = self.db.cfg("business_name") or "GestiónPro"
+                ticket = (
+                    f"{'='*40}\n"
+                    f"   {bname}\n"
+                    f"{'='*40}\n"
+                    f"   PRUEBA DE IMPRESORA\n"
+                    f"   La impresora funciona.\n"
+                    f"{'='*40}\n\n\n\n"
+                )
+                hprn = win32print.OpenPrinter(name)
+                try:
+                    win32print.StartDocPrinter(hprn, 1, ("Test", None, "RAW"))
+                    win32print.StartPagePrinter(hprn)
+                    win32print.WritePrinter(hprn, ticket.encode("cp437", errors="replace"))
+                    win32print.EndPagePrinter(hprn)
+                    win32print.EndDocPrinter(hprn)
+                finally:
+                    win32print.ClosePrinter(hprn)
+                messagebox.showinfo("✅ Impresora", f"Ticket enviado a:\n{name}")
+            except ImportError:
+                messagebox.showerror("Error", "pywin32 no está instalado.\npip install pywin32")
             except Exception as ex:
-                messagebox.showerror("❌ Error", f"No se pudo imprimir:\n\n{ex}")
+                messagebox.showerror("❌ Error de impresora", str(ex))
 
-        W_btn(pr_grid, "🧪  Probar impresora", _test_printer,
-              color=WARN, w=200, h=32).grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        def _refresh_printers():
+            fresh = _get_printers()
+            self._cb_printer.configure(values=fresh)
+            if fresh: self._cb_printer.set(fresh[0])
 
-        W_sep(frm)
-        W_btn(frm, "💾  Guardar configuración", self._save, w=280, h=42).pack(pady=14)
-        W_label(frm, f"Log del día: {_log_file}", size=9, color=DIM).pack(pady=(0, 10))
+        btn_row = ctk.CTkFrame(right, fg_color="transparent")
+        btn_row.pack(fill="x", padx=20, pady=(10, 16))
+        W_btn(btn_row, "💾  Guardar imp.", _save_printer, w=140, h=36).pack(side="left")
+        W_btn(btn_row, "🧪  Prueba", _test_printer, color=OK, w=90, h=36).pack(side="left", padx=6)
+        W_btn(btn_row, "🔍  Buscar", _refresh_printers, color="#444", w=90, h=36).pack(side="left")
 
     def _save(self):
-        for key, e in self.entries.items(): self.db.set_cfg(key, e.get().strip())
-        self.db.set_cfg("printer_enabled", self._pr_switch.get())
-        messagebox.showinfo("✅ Guardado", "Configuración guardada.\nReinicia para aplicar cambios de nombre/logo.")
-        log.info("Configuración actualizada")
+        for key, e in self.entries.items():
+            self.db.set_cfg(key, e.get().strip())
+        messagebox.showinfo("✅ Guardado",
+            "Configuración guardada.\nReinicia para aplicar cambios de nombre/logo.")
+        log.info("Configuración general actualizada")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2486,14 +2636,16 @@ def _backup_db(db_path="gestionpro.db"):
 # ENTRY POINT
 # ═══════════════════════════════════════════════════════════════
 def main():
-    global _DB, _LIC_INFO
+    global _DB
     log.info("=== GestiónPro v2.0 iniciando ===")
-    # ── Validar licencia ANTES de cualquier otra cosa ──
-    _LIC_INFO = _verificar_licencia()
-    if not _LIC_INFO:
-        _mostrar_error_licencia()   # nunca retorna (sys.exit)
+    # ── Inicializar BD y escala primero ──
     _DB = DB()
-    _init_scale()   # detectar resolución y calcular SCALE antes de cualquier ventana
+    _init_scale()
+    # ── Validar / Activar licencia ──
+    if not check_license_and_run(_DB):
+        _DB.close()
+        log.info("Sin licencia válida — saliendo.")
+        sys.exit(0)
     # ── Wizard de primer arranque ──
     if _DB.cfg("wizard_done") != "1":
         wiz = SetupWizard(_DB)
