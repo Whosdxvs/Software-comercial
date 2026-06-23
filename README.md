@@ -29,7 +29,7 @@ El `.exe` no necesita setup. Se pasa el archivo a la otra persona y queda funcio
 1. Eliminar las carpetas `dist/` y `build/`
 2. Ejecutar:
 ```
-pyinstaller --onefile --windowed Software.py
+pyinstaller --onefile --windowed --collect-data escpos Software.py
 ```
 
 ---
