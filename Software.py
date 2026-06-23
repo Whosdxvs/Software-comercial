@@ -56,6 +56,7 @@ import base64 as _b64
 import uuid as _uuid
 
 _SECRET_KEY = b"G3st10nPr0_2026_KEY_S3cr3t4_X7k9Qm"
+_LIC_INFO = None
 
 class LicenseManager:
     """Gestiona la validación y activación de llaves de licencia.
@@ -196,12 +197,30 @@ def check_license_and_run(db) -> bool:
     """Verifica la licencia. Si es válida retorna True.
     Si no, muestra la ventana de activación. Retorna True solo si se activa con éxito.
     """
+    global _LIC_INFO
     lm = LicenseManager(db)
+    
+    def _set_info():
+        global _LIC_INFO
+        try:
+            payload = lm.validate_license_string(db.cfg("license_key"))
+            _LIC_INFO = {"permanente": payload.get("permanent", False)}
+            if not _LIC_INFO["permanente"]:
+                activation = date.fromisoformat(db.cfg("license_activation_date"))
+                days_allowed = payload.get("days", 0)
+                days_passed = (date.today() - activation).days
+                _LIC_INFO["dias_restantes"] = max(0, days_allowed - days_passed)
+        except Exception:
+            _LIC_INFO = None
+
     status = lm.check_current_status()
     if status["valid"]:
+        _set_info()
         return True
     win = ActivationWindow(db)
     win.mainloop()
+    if win.success:
+        _set_info()
     return win.success
 
 # ── Paleta ────────────────────────────────────────────────────
