@@ -1332,9 +1332,15 @@ class InventarioPanel(BasePanel):
         self._refresh()
 
     def _form(self, title, data=None):
-        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(480)}x{_sc(570)}"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(700)}x{_sc(480)}"); dlg.grab_set()
         dlg.configure(fg_color=BG)
-        W_label(dlg, title, size=14, bold=True, color=ACC).pack(pady=(20,10))
+        W_label(dlg, title, size=16, bold=True, color=ACC).pack(pady=(20,10))
+        
+        container = ctk.CTkFrame(dlg, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=_sc(20), pady=_sc(10))
+        container.columnconfigure(0, weight=1, pad=_sc(15))
+        container.columnconfigure(1, weight=1, pad=_sc(15))
+
         cats = self.db.get_categories()
         fields = [
             ("Nombre *",              "name",      str,   ""),
@@ -1349,16 +1355,21 @@ class InventarioPanel(BasePanel):
             ("Unidad (kg, lt, caja…)", "unit",      str,   "unidad"),
         ]
         entries = {}
-        for lbl, key, typ, default in fields:
-            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=_sc(26), pady=(_sc(6), 0))
+        for i, (lbl, key, typ, default) in enumerate(fields):
+            row = i // 2
+            col = i % 2
+            f_frame = ctk.CTkFrame(container, fg_color="transparent")
+            f_frame.grid(row=row, column=col, sticky="ew", padx=_sc(8), pady=_sc(8))
+            
+            W_label(f_frame, lbl, size=10, color=DIM).pack(anchor="w", pady=(0, 2))
             if typ == "combo":
-                w = W_combo(dlg, cats, w=426); w.pack(padx=_sc(26))
+                w = W_combo(f_frame, cats, w=300); w.pack(fill="x")
                 w.set(str(data.get(key, default)) if data else default)
             else:
-                w = W_entry(dlg, w=426)
+                w = W_entry(f_frame, w=300)
                 val = str(data.get(key,"")) if data else default
                 if val: w.insert(0, val)
-                w.pack(padx=_sc(26))
+                w.pack(fill="x")
             entries[key] = w
 
         def save():
@@ -1505,17 +1516,28 @@ class ClientesPanel(BasePanel):
         W_btn(dlg, "✅ Confirmar Abono", save, w=300, h=40, color=OK).pack(pady=20)
 
     def _form(self, title, data=None):
-        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(430)}x{_sc(430)}"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(700)}x{_sc(360)}"); dlg.grab_set()
         dlg.configure(fg_color=BG)
-        W_label(dlg, title, size=14, bold=True, color=ACC).pack(pady=(20,10))
+        W_label(dlg, title, size=16, bold=True, color=ACC).pack(pady=(20,10))
+        
+        container = ctk.CTkFrame(dlg, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=_sc(20), pady=_sc(10))
+        container.columnconfigure(0, weight=1, pad=_sc(15))
+        container.columnconfigure(1, weight=1, pad=_sc(15))
+
         fields = [("Nombre *","name"),("Documento / NIT","document"),("Teléfono","phone"),
                   ("Email","email"),("Dirección","address"),("Notas","notes")]
         entries = {}
-        for lbl, key in fields:
-            W_label(dlg, lbl, size=10, color=DIM).pack(anchor="w", padx=_sc(26), pady=(_sc(6), 0))
-            e = W_entry(dlg, w=378)
+        for i, (lbl, key) in enumerate(fields):
+            row = i // 2
+            col = i % 2
+            f_frame = ctk.CTkFrame(container, fg_color="transparent")
+            f_frame.grid(row=row, column=col, sticky="ew", padx=_sc(8), pady=_sc(8))
+            
+            W_label(f_frame, lbl, size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+            e = W_entry(f_frame, w=300)
             if data and data.get(key): e.insert(0, str(data[key]))
-            e.pack(padx=_sc(26)); entries[key] = e
+            e.pack(fill="x"); entries[key] = e
         def save():
             n = entries["name"].get().strip()
             if not n: messagebox.showerror("Error","Nombre obligatorio",parent=dlg); return
@@ -2088,27 +2110,38 @@ class GastosPanel(BasePanel):
 
     def _new_expense(self):
         dlg = ctk.CTkToplevel(self); dlg.title("Registrar Nuevo Gasto")
-        dlg.geometry(f"{_sc(380)}x{_sc(480)}"); dlg.grab_set(); dlg.configure(fg_color=BG)
+        dlg.geometry(f"{_sc(600)}x{_sc(320)}"); dlg.grab_set(); dlg.configure(fg_color=BG)
         
         W_label(dlg, "Nuevo Gasto", size=16, bold=True, color=ACC).pack(pady=(20,10))
         
-        W_label(dlg, "Categoría *", size=10, color=DIM).pack(anchor="w", padx=_sc(30))
+        container = ctk.CTkFrame(dlg, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=_sc(20), pady=_sc(10))
+        container.columnconfigure(0, weight=1, pad=_sc(15))
+        container.columnconfigure(1, weight=1, pad=_sc(15))
+
+        f_cat = ctk.CTkFrame(container, fg_color="transparent")
+        f_cat.grid(row=0, column=0, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_cat, "Categoría *", size=10, color=DIM).pack(anchor="w", pady=(0, 2))
         cats = ["Arriendo", "Servicios Públicos", "Transporte", "Insumos/Papelería", "Nómina", "Mantenimiento", "Otro"]
-        cb_cat = W_combo(dlg, cats, w=320)
-        cb_cat.pack(padx=_sc(30), pady=4)
+        cb_cat = W_combo(f_cat, cats, w=260); cb_cat.pack(fill="x")
         
-        W_label(dlg, "Monto *", size=10, color=DIM).pack(anchor="w", padx=_sc(30), pady=(10,0))
-        e_amount = W_entry(dlg, w=320); e_amount.pack(padx=_sc(30), pady=4)
+        f_amt = ctk.CTkFrame(container, fg_color="transparent")
+        f_amt.grid(row=0, column=1, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_amt, "Monto *", size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+        e_amount = W_entry(f_amt, w=260); e_amount.pack(fill="x")
         
-        W_label(dlg, "Descripción (opcional)", size=10, color=DIM).pack(anchor="w", padx=_sc(30), pady=(10,0))
-        e_desc = W_entry(dlg, w=320); e_desc.pack(padx=_sc(30), pady=4)
+        f_desc = ctk.CTkFrame(container, fg_color="transparent")
+        f_desc.grid(row=1, column=0, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_desc, "Descripción (opcional)", size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+        e_desc = W_entry(f_desc, w=260); e_desc.pack(fill="x")
         
-        # Checkbox para descontar de caja
+        f_chk = ctk.CTkFrame(container, fg_color="transparent")
+        f_chk.grid(row=1, column=1, sticky="ew", padx=_sc(8), pady=_sc(8))
         chk_var = tk.StringVar(value="1")
-        chk = ctk.CTkCheckBox(dlg, text="Sacar dinero de la caja registradora actual\n(Resta al cuadre del día)", 
+        chk = ctk.CTkCheckBox(f_chk, text="Sacar de la caja actual", 
                               variable=chk_var, onvalue="1", offvalue="0",
                               font=("Segoe UI", _sc(10)), text_color=DIM)
-        chk.pack(anchor="w", padx=_sc(30), pady=20)
+        chk.pack(anchor="w", pady=(20, 0))
         
         def save():
             cat = cb_cat.get().strip()
@@ -2379,19 +2412,36 @@ class UsuariosPanel(BasePanel):
                 "✅ Activo" if u["active"] else "❌ Inactivo"))
 
     def _form(self, title, data=None):
-        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry("400x390"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title(title); dlg.geometry(f"{_sc(600)}x{_sc(320)}"); dlg.grab_set()
         dlg.configure(fg_color=BG)
-        W_label(dlg, title, size=14, bold=True, color=ACC).pack(pady=(20,10))
-        W_label(dlg,"Usuario *", size=10, color=DIM).pack(anchor="w", padx=26)
-        eu = W_entry(dlg, w=348); eu.pack(padx=26, pady=(2,8))
+        W_label(dlg, title, size=16, bold=True, color=ACC).pack(pady=(20,10))
+        
+        container = ctk.CTkFrame(dlg, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=_sc(20), pady=_sc(10))
+        container.columnconfigure(0, weight=1, pad=_sc(15))
+        container.columnconfigure(1, weight=1, pad=_sc(15))
+
+        f_user = ctk.CTkFrame(container, fg_color="transparent")
+        f_user.grid(row=0, column=0, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_user,"Usuario *", size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+        eu = W_entry(f_user, w=260); eu.pack(fill="x")
         if data: eu.insert(0, data["username"])
-        W_label(dlg,"Contraseña"+((" (vacío = no cambiar)") if data else " *"), size=10, color=DIM).pack(anchor="w", padx=26)
-        ep = W_entry(dlg, pw=True, w=348); ep.pack(padx=26, pady=(2,8))
-        W_label(dlg,"Rol", size=10, color=DIM).pack(anchor="w", padx=26)
-        rc = W_combo(dlg,["admin","vendedor","consulta"],w=348); rc.pack(padx=26, pady=(2,8))
+
+        f_pw = ctk.CTkFrame(container, fg_color="transparent")
+        f_pw.grid(row=0, column=1, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_pw,"Contraseña"+((" (vacío = no cambiar)") if data else " *"), size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+        ep = W_entry(f_pw, pw=True, w=260); ep.pack(fill="x")
+
+        f_rol = ctk.CTkFrame(container, fg_color="transparent")
+        f_rol.grid(row=1, column=0, sticky="ew", padx=_sc(8), pady=_sc(8))
+        W_label(f_rol,"Rol", size=10, color=DIM).pack(anchor="w", pady=(0, 2))
+        rc = W_combo(f_rol,["admin","vendedor","consulta"], w=260); rc.pack(fill="x")
         if data: rc.set(data["role"])
+
+        f_act = ctk.CTkFrame(container, fg_color="transparent")
+        f_act.grid(row=1, column=1, sticky="ew", padx=_sc(8), pady=_sc(8))
         av = tk.IntVar(value=1 if not data else data["active"])
-        ctk.CTkCheckBox(dlg,text="Usuario Activo",variable=av,font=("Segoe UI",11)).pack(padx=26,pady=6,anchor="w")
+        ctk.CTkCheckBox(f_act,text="Usuario Activo",variable=av,font=("Segoe UI",11)).pack(anchor="w", pady=(20, 0))
         def save():
             u=eu.get().strip(); p=ep.get().strip()
             if not u: messagebox.showerror("Error","Usuario obligatorio",parent=dlg); return
