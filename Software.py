@@ -409,14 +409,14 @@ class DB:
             ("low_stock_limit", "5"), ("logo_path", ""),
             ("printer_name", ""), ("printer_enabled", "0"),
             ("printer_width", "80mm (estándar)"),
-            # ── Facturación Electrónica Factus (DIAN) ──
+            # ── Facturación Electrónica Factus (DIAN) — Credenciales Sandbox V2 ──
             ("invoice_prefix",            "FAC"),
             ("invoice_next",              "1"),
-            ("factus_client_id",          ""),
-            ("factus_client_secret",      ""),
-            ("factus_username",           ""),
-            ("factus_password",           ""),
-            ("factus_numbering_range_id", "0"),
+            ("factus_client_id",          "a2159eae-5d86-454f-b786-790a9c3f96ca"),
+            ("factus_client_secret",      "uvzljVQXLvzCujKFBa5NxwWTeHdb9uGjaHR1z7ud"),
+            ("factus_username",           "sandboxv2@factus.com.co"),
+            ("factus_password",           "sandbox2026%"),
+            ("factus_numbering_range_id", "389"),
             ("factus_environment",        "sandbox"),
             ("factus_municipality_code",  "68001"),
         ]:
