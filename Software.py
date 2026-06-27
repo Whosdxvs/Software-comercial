@@ -1861,7 +1861,7 @@ class VentaPanel(BasePanel):
         # ── Ventana ──
         dlg = ctk.CTkToplevel(self.winfo_toplevel())
         dlg.title("💳 Registrar Venta")
-        dlg.geometry("500x580")
+        dlg.geometry("500x680")
         dlg.resizable(False, True)
         dlg.configure(fg_color=BG)
         dlg.grab_set()
@@ -1988,10 +1988,9 @@ class VentaPanel(BasePanel):
             except Exception as e:
                 log.error(f"Error registrando venta: {e}", exc_info=True)
                 messagebox.showerror("❌ Error", f"No se pudo guardar la venta:\n{e}", parent=dlg); return
-            # Ticket
-            try: self._gen_ticket(sid, sub, disc, total_state["val"], payment, notes, cambio)
-            except Exception as te: log.warning(f"Ticket: {te}")
-            # Factura DIAN
+            # Primero intentar emitir Factura DIAN si se marcó
+            dian_cufe = None
+            dian_qr = None
             if apply_dian.get():
                 try:
                     from factus_api import FactusClient, FactusError
@@ -2008,14 +2007,24 @@ class VentaPanel(BasePanel):
                                  "email":e_email.get().strip() or "consumidor@final.com",
                                  "phone":"","address":self.db.cfg("address") or "calle 1 # 1-1",
                                  "payment_method":payment}, inv["num"])
-                            self.db.update_invoice_dian(inv["id"],result.get("cufe",""),result.get("pdf_url",""))
+                            
+                            dian_cufe = result.get("cufe", "")
+                            if dian_cufe:
+                                dian_qr = f"https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey={dian_cufe}"
+                                
+                            self.db.update_invoice_dian(inv["id"], dian_cufe, result.get("pdf_url",""))
                             messagebox.showinfo("✅ Factura DIAN",
                                 f"Factura emitida!\nNúmero: {result.get('number','')}\n"
-                                f"CUFE: {result.get('cufe','')[:30]}...",parent=dlg)
+                                f"CUFE: {dian_cufe[:30]}...",parent=dlg)
                 except ImportError:
                     messagebox.showerror("Error","No se encontró factus_api.py",parent=dlg)
                 except Exception as fe:
                     messagebox.showerror("Error Facturación",str(fe),parent=dlg)
+
+            # Ticket (ahora con datos DIAN si los hay)
+            try: self._gen_ticket(sid, sub, disc, total_state["val"], payment, notes, cambio, dian_cufe, dian_qr)
+            except Exception as te: log.warning(f"Ticket: {te}")
+
             # Confirmación final
             msg = f"Venta #{sid}\n\nTotal: {fmt(total_state['val'])}\nPago:  {payment}"
             if cambio > 0: msg += f"\nCambio: {fmt(cambio)}"
@@ -2025,7 +2034,7 @@ class VentaPanel(BasePanel):
 
 
 
-    def _gen_ticket(self, sid, sub, disc, total, payment, notes, cambio):
+    def _gen_ticket(self, sid, sub, disc, total, payment, notes, cambio, dian_cufe=None, dian_qr=None):
         sym = self.db.cfg("currency_symbol")
         bname = self.db.cfg("business_name"); btype = self.db.cfg("business_type")
         phone = self.db.cfg("phone");         addr  = self.db.cfg("address")
@@ -2051,6 +2060,9 @@ class VentaPanel(BasePanel):
                       f"Pago: {payment.capitalize()}".ljust(W)]
             if cambio > 0: lines.append(f"Cambio: {sym}{cambio:.0f}".ljust(W))
             if notes: lines.append(f"Notas: {notes}".ljust(W))
+            if dian_cufe:
+                lines += ["="*W, "DOCUMENTO REFERENCIA FACTURA ELECTRONICA".center(W)]
+                lines += [f"CUFE: {dian_cufe}", f"Ver en DIAN: {dian_qr}"]
             lines += ["="*W, "Gracias por su compra!".center(W), "\n\n\n"]
             path = f"tickets/ticket_{sid}.txt"
             with open(path, "w", encoding="utf-8") as f: f.write("\n".join(lines))
@@ -2060,10 +2072,10 @@ class VentaPanel(BasePanel):
         # ── Impresora térmica (si está habilitada) ──
         if self.db.cfg("printer_enabled") == "1":
             self._print_thermal(sid, sub, disc, total, payment, notes, cambio,
-                                sym, bname, btype, phone, addr)
+                                sym, bname, btype, phone, addr, dian_cufe, dian_qr)
 
     def _print_thermal(self, sid, sub, disc, total, payment, notes, cambio,
-                       sym, bname, btype, phone, addr):
+                       sym, bname, btype, phone, addr, dian_cufe=None, dian_qr=None):
         """Imprime ticket profesional en impresora térmica POS 80mm."""
         if not HAS_ESCPOS:
             log.warning("python-escpos no instalado — pip install python-escpos")
@@ -2116,6 +2128,24 @@ class VentaPanel(BasePanel):
                 p.text(f"Cambio: {sym}{cambio:,.0f}\n")
             if notes:
                 p.text(f"Notas: {notes}\n")
+                
+            if dian_cufe:
+                p.text("\n" + "="*48 + "\n")
+                p.set(align='center', bold=True)
+                p.text("ESTE DOCUMENTO REFERENCIA A LA\n")
+                p.text("FACTURA ELECTRONICA DE VENTA\n")
+                p.set(bold=False)
+                p.text("LA FACTURA ELECTRONICA SERA ENVIADA A SU CORREO\n\n")
+                p.set(align='left')
+                p.text(f"CUFE:\n{dian_cufe}\n\n")
+                if dian_qr:
+                    try:
+                        p.set(align='center')
+                        p.qr(dian_qr, size=6)
+                        p.text("\n")
+                    except Exception as e:
+                        log.warning(f"No se pudo imprimir QR: {e}")
+                        
             # ── Pie ──
             p.text("="*48 + "\n")
             p.set(align='center')
