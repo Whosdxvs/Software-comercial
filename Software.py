@@ -2025,14 +2025,59 @@ class CierreCajaPanel(BasePanel):
         try: actual = float(self.e_actual.get())
         except: messagebox.showerror("Error","Ingresa el monto real"); return
         diff = actual - expected
-        if messagebox.askyesno("Confirmar Cierre",
-            f"Esperado en caja:  {fmt(expected)}\n"
-            f"Real en caja:      {fmt(actual)}\n"
-            f"Diferencia:        {fmt(diff)}\n\n"
-            f"{'✅ Caja cuadra' if abs(diff)<1 else '⚠️ Hay diferencia'}\n\n¿Cerrar turno?"):
-            self.db.close_session(sess_id, actual)
-            messagebox.showinfo("✅ Turno Cerrado",f"Diferencia: {fmt(diff)}")
-            self._load_turno(); self._build_historial()
+        cuadro = abs(diff) < 1
+
+        # Mensaje de confirmación antes de cerrar
+        confirm_msg = (
+            f"──────────────────────────────\n"
+            f"  RESUMEN DE CIERRE DE CAJA\n"
+            f"──────────────────────────────\n\n"
+            f"  💰 Esperado en caja:  {fmt(expected)}\n"
+            f"  💵 Real contado:      {fmt(actual)}\n"
+            f"  📊 Diferencia:        {fmt(diff)}\n\n"
+            f"{'  ✅ CAJA CUADRADA' if cuadro else f'  ⚠️ DESCUADRE DE {fmt(abs(diff))}'}\n\n"
+            f"──────────────────────────────\n"
+            f"¿Confirmar cierre del turno?"
+        )
+        if not messagebox.askyesno("Confirmar Cierre de Caja", confirm_msg):
+            return
+
+        self.db.close_session(sess_id, actual)
+
+        # Mensaje de resultado después del cierre
+        if cuadro:
+            resultado_titulo = "✅ Caja Cerrada — CUADRÓ"
+            resultado_msg = (
+                f"El turno fue cerrado exitosamente.\n\n"
+                f"✅  ¡La caja CUADRÓ perfectamente!\n\n"
+                f"   Esperado: {fmt(expected)}\n"
+                f"   Real:     {fmt(actual)}\n"
+                f"   Diferencia: {fmt(diff)}"
+            )
+        elif diff > 0:
+            resultado_titulo = "⚠️ Caja Cerrada — SOBRANTE"
+            resultado_msg = (
+                f"El turno fue cerrado exitosamente.\n\n"
+                f"⚠️  Hubo un SOBRANTE en caja.\n\n"
+                f"   Esperado:  {fmt(expected)}\n"
+                f"   Real:      {fmt(actual)}\n"
+                f"   Sobrante:  +{fmt(diff)}\n\n"
+                f"Verifica ingresos no registrados."
+            )
+        else:
+            resultado_titulo = "⚠️ Caja Cerrada — FALTANTE"
+            resultado_msg = (
+                f"El turno fue cerrado exitosamente.\n\n"
+                f"⚠️  Hubo un FALTANTE en caja.\n\n"
+                f"   Esperado:  {fmt(expected)}\n"
+                f"   Real:      {fmt(actual)}\n"
+                f"   Faltante:  {fmt(diff)}\n\n"
+                f"Verifica egresos o ventas no contabilizadas."
+            )
+
+        messagebox.showinfo(resultado_titulo, resultado_msg)
+        self._load_turno()
+        self._build_historial()
 
     def _build_historial(self):
         tab = self.tabs.tab("📋 Historial")
