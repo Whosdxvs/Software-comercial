@@ -224,7 +224,7 @@ def check_license_and_run(db) -> bool:
     return win.success
 
 # ── Paleta ────────────────────────────────────────────────────
-BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"
+BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"; CARD2 = "#2e2e2e"
 ACC    = "#4682DC"; ACCH   = "#5a96f0"; TEXT = "#f0f0f0"
 DIM    = "#888888"; OK     = "#3dba6e"; ERR  = "#e74c3c"
 WARN   = "#f39c12"; PURPLE = "#8e44ad"
