@@ -353,6 +353,21 @@ class DB:
             amount REAL NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             timestamp TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_id INTEGER REFERENCES sales(id),
+            invoice_num TEXT NOT NULL DEFAULT '',
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            subtotal REAL NOT NULL DEFAULT 0,
+            discount REAL NOT NULL DEFAULT 0,
+            tax_iva REAL NOT NULL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            payment_method TEXT NOT NULL DEFAULT 'efectivo',
+            cufe TEXT NOT NULL DEFAULT '',
+            pdf_url TEXT NOT NULL DEFAULT '',
+            dian_status TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '');
         """)
         self.con.commit()
         self._migrate()
@@ -368,6 +383,9 @@ class DB:
             ("products",       "unit",          "TEXT NOT NULL DEFAULT 'unidad'"),
             ("cash_sessions",  "actual_cash",   "REAL DEFAULT 0"),
             ("clients",        "debt",          "REAL NOT NULL DEFAULT 0"),
+            ("invoices",       "cufe",          "TEXT NOT NULL DEFAULT ''"),
+            ("invoices",       "pdf_url",       "TEXT NOT NULL DEFAULT ''"),
+            ("invoices",       "dian_status",   "TEXT NOT NULL DEFAULT ''"),
         ]
         existing = {}
         for table, col, defn in migrations:
@@ -391,6 +409,16 @@ class DB:
             ("low_stock_limit", "5"), ("logo_path", ""),
             ("printer_name", ""), ("printer_enabled", "0"),
             ("printer_width", "80mm (estándar)"),
+            # ── Facturación Electrónica Factus (DIAN) ──
+            ("invoice_prefix",            "FAC"),
+            ("invoice_next",              "1"),
+            ("factus_client_id",          ""),
+            ("factus_client_secret",      ""),
+            ("factus_username",           ""),
+            ("factus_password",           ""),
+            ("factus_numbering_range_id", "0"),
+            ("factus_environment",        "sandbox"),
+            ("factus_municipality_code",  "68001"),
         ]:
             self.con.execute("INSERT OR IGNORE INTO config VALUES(?,?)", (k, v))
         self.con.execute(
@@ -596,6 +624,49 @@ class DB:
         self.run("UPDATE cash_sessions SET closed_at=?,actual_cash=?,status='closed' WHERE id=?",
                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), float(actual_cash), session_id))
         log.info(f"Caja cerrada: sesión #{session_id}, real ${actual_cash:.0f}")
+
+    # ── Facturación Electrónica ───────────────────────────────
+    def next_invoice_number(self):
+        """Genera el siguiente número de factura correlativo con prefijo (ej: FAC-000001)."""
+        prefix = self.cfg("invoice_prefix") or "FAC"
+        try:
+            nxt = int(self.cfg("invoice_next") or "1")
+        except (ValueError, TypeError):
+            nxt = 1
+        num = f"{prefix}-{nxt:06d}"
+        self.set_cfg("invoice_next", str(nxt + 1))
+        return num
+
+    def create_invoice(self, sale_id, payment_method, discount, tax_iva, notes=""):
+        """Crea un registro de factura electrónica en la BD local."""
+        sale = self.one("SELECT * FROM sales WHERE id=?", (sale_id,))
+        if not sale:
+            return None
+        num      = self.next_invoice_number()
+        subtotal = float(sale.get("subtotal", 0))
+        total    = subtotal - float(discount) + float(tax_iva)
+        now      = datetime.now()
+        inv_id   = self.run(
+            "INSERT INTO invoices(sale_id,invoice_num,date,time,"
+            "subtotal,discount,tax_iva,total,payment_method,notes) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (sale_id, num,
+             now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"),
+             subtotal, float(discount), float(tax_iva), total,
+             payment_method, notes))
+        log.info(f"Factura local {num} creada — Total ${total:.0f}")
+        return {"id": inv_id, "num": num, "total": total}
+
+    def update_invoice_dian(self, inv_id, cufe, pdf_url, dian_status="emitida"):
+        """Actualiza una factura con los datos recibidos de la DIAN (CUFE y PDF)."""
+        self.run(
+            "UPDATE invoices SET cufe=?, pdf_url=?, dian_status=? WHERE id=?",
+            (cufe, pdf_url, dian_status, inv_id))
+        log.info(f"Factura #{inv_id} actualizada con CUFE de la DIAN.")
+
+    def get_invoice(self, inv_id):
+        """Retorna una factura por ID."""
+        return self.one("SELECT * FROM invoices WHERE id=?", (inv_id,))
 
     def add_cash_transaction(self, session_id, t_type, amount, description):
         return self.run(
@@ -1777,26 +1848,29 @@ class VentaPanel(BasePanel):
                 if rec < total:
                     messagebox.showwarning("Pago insuficiente",f"El pago mínimo es {fmt(total)}",parent=dlg); return
                 cambio = rec - total
-                dlg.withdraw()  # Ocultar antes de registrar para evitar conflictos de foco
-                self._register_sale(sub, disc, total, payment, cambio)
+                dlg.withdraw()
                 dlg.destroy()
+                # Abrir diálogo DIAN después de confirmar efectivo
+                FacturacionDialog(self, self.db, self.user, self.cart, sub, disc, total, payment, cambio, self._on_sale_done)
 
             W_btn(dlg, "✅  Confirmar y Registrar", confirmar, color=OK, w=280, h=44).pack(padx=40, pady=14)
             e_rec.bind("<Return>", lambda _: confirmar())
         else:
-            self._register_sale(sub, disc, total, payment, 0)
+            FacturacionDialog(self, self.db, self.user, self.cart, sub, disc, total, payment, 0, self._on_sale_done)
 
-    def _register_sale(self, sub, disc, total, payment, cambio):
+    def _on_sale_done(self):
+        self._clear(); self._search_prod()
+
+    def _register_sale(self, sub, disc, total, payment, cambio,
+                       notes="", dian_data=None):
+        """Registra la venta en la BD y opcionalmente emite factura electrónica DIAN."""
         try:
-            notes   = self.e_notes.get().strip()
-            cv      = self.cb_cli.get(); client_id = None
+            cv = self.cb_cli.get(); client_id = None
             if cv and cv != "(sin cliente)":
                 try:
-                    raw = cv.strip()
-                    client_id = int(raw.split()[0])
+                    client_id = int(cv.strip().split()[0])
                 except Exception:
                     client_id = None
-            # Refrescar la sesión activa en el momento del cobro
             self.active_sess = self.db.get_active_session(self.user["id"])
             sess_id = self.active_sess["id"] if self.active_sess else None
             sid = self.db.create_sale(client_id, self.user["id"], self.cart, disc, payment, notes, sess_id)
@@ -1804,11 +1878,12 @@ class VentaPanel(BasePanel):
             msg = f"Venta #{sid}\n\nTotal: {fmt(total)}\nPago:  {payment}"
             if cambio > 0: msg += f"\nCambio: {fmt(cambio)}"
             messagebox.showinfo("✅ Venta registrada", msg)
-            self._clear(); self._search_prod()
         except Exception as e:
             log.error(f"Error registrando venta: {e}", exc_info=True)
             messagebox.showerror("❌ Error al registrar venta",
                 f"No se pudo guardar la venta:\n\n{e}\n\nRevisa el archivo de log para más detalles.")
+
+
 
     def _gen_ticket(self, sid, sub, disc, total, payment, notes, cambio):
         sym = self.db.cfg("currency_symbol")
@@ -1913,6 +1988,239 @@ class VentaPanel(BasePanel):
             log.error(f"Error imprimiendo en térmica: {e}")
             messagebox.showwarning("Impresora",
                 f"No se pudo imprimir el ticket:\n{e}\n\nEl ticket .txt fue guardado como respaldo.")
+
+
+
+# ═══════════════════════════════════════════════════════════════
+# FACTURACIÓN ELECTRÓNICA DIAN — DIÁLOGO
+# ═══════════════════════════════════════════════════════════════
+class FacturacionDialog(ctk.CTkToplevel):
+    """
+    Diálogo que aparece al cobrar una venta.
+    - Registra la venta en la BD.
+    - Opcionalmente emite factura electrónica ante la DIAN vía Factus.
+    """
+    def __init__(self, master, db, user, cart, sub, disc, total,
+                 payment, cambio, on_done_cb):
+        super().__init__(master)
+        self.db        = db
+        self.user      = user
+        self.cart      = cart
+        self.sub       = sub
+        self.disc      = disc
+        self.total     = total
+        self.payment   = payment
+        self.cambio    = cambio
+        self.on_done   = on_done_cb
+
+        self.title("💳 Registrar Venta")
+        self.geometry(f"{_sc(480)}x{_sc(560)}")
+        self.resizable(True, True)
+        self.configure(fg_color=BG)
+        self.grab_set()
+        self._build()
+        self.wait_window()
+
+    def _build(self):
+        # ── Botones fijos al fondo ──
+        btn_bar = ctk.CTkFrame(self, fg_color=CARD, corner_radius=0, height=_sc(64))
+        btn_bar.pack(side="bottom", fill="x"); btn_bar.pack_propagate(False)
+        brow = ctk.CTkFrame(btn_bar, fg_color="transparent")
+        brow.pack(fill="both", expand=True, padx=_sc(16), pady=_sc(10))
+        W_btn(brow, "✕ Cancelar", self.destroy, color="#444", w=130, h=40).pack(side="left")
+        W_btn(brow, "✅ Registrar Venta", self._emit, color=OK, w=250, h=40).pack(side="right")
+
+        # ── Área scrollable ──
+        scroll = ctk.CTkScrollableFrame(self, fg_color=CARD, corner_radius=0)
+        scroll.pack(side="top", fill="both", expand=True)
+
+        W_label(scroll, "🛒 Resumen de Venta", size=15, bold=True, color=ACC).pack(pady=(14,4))
+
+        # Resumen de ítems
+        items_box = ctk.CTkFrame(scroll, fg_color=CARD2, corner_radius=8)
+        items_box.pack(fill="x", padx=12, pady=6)
+        W_label(items_box, "🧾 Ítems", size=9, color=DIM).pack(anchor="w", padx=10, pady=(6,2))
+        for it in self.cart:
+            r = ctk.CTkFrame(items_box, fg_color="transparent"); r.pack(fill="x", padx=10, pady=1)
+            qty_s = f"x{int(it['quantity'])}" if it['quantity'] == int(it['quantity']) else f"{it['quantity']}"
+            W_label(r, f"{qty_s}  {it['product_name']}", size=10).pack(side="left")
+            W_label(r, fmt(it["subtotal"]), size=10, color=OK).pack(side="right")
+        ctk.CTkFrame(items_box, fg_color="transparent", height=_sc(6)).pack()
+
+        # IVA opcional
+        iva_row = ctk.CTkFrame(scroll, fg_color="transparent"); iva_row.pack(fill="x", padx=12, pady=(6,0))
+        W_label(iva_row, "IVA (%):", size=10, color=DIM).pack(side="left")
+        self.e_iva_pct = W_entry(iva_row, "0", w=80)
+        # Precargar el tax_percent configurado
+        tax_pct = self.db.cfg("tax_percent") or "0"
+        self.e_iva_pct.insert(0, tax_pct)
+        self.e_iva_pct.pack(side="left", padx=8)
+        self.e_iva_pct.bind("<KeyRelease>", lambda _: self._upd_totals())
+        W_label(iva_row, "(0 = sin IVA)", size=9, color=DIM).pack(side="left")
+
+        # Panel de totales
+        tot_box = ctk.CTkFrame(scroll, fg_color=CARD2, corner_radius=8)
+        tot_box.pack(fill="x", padx=12, pady=6)
+        for attr, lbl_txt, color in [
+            ("_l_sub",   "Subtotal:",     TEXT),
+            ("_l_disc",  "Descuento:",    ERR),
+            ("_l_iva",   "IVA:",          DIM),
+            ("_l_total", "TOTAL FINAL:",  OK),
+        ]:
+            rw = ctk.CTkFrame(tot_box, fg_color="transparent"); rw.pack(fill="x", padx=12, pady=2)
+            bold = attr == "_l_total"; sz = 13 if bold else 10
+            W_label(rw, lbl_txt, size=sz, color=color, bold=bold).pack(side="left")
+            v = W_label(rw, fmt(0), size=sz, color=color, bold=bold); v.pack(side="right")
+            setattr(self, attr, v)
+
+        # Notas
+        W_label(scroll, "Notas (opcional):", size=9, color=DIM).pack(anchor="w", padx=12, pady=(6,0))
+        self.e_notes = W_entry(scroll, "", w=430); self.e_notes.pack(padx=12, pady=(0,4))
+
+        # ── Sección Facturación Electrónica DIAN ──
+        self._apply_dian = tk.BooleanVar(value=False)
+        dian_chk = ctk.CTkCheckBox(
+            scroll, text="📄 Emitir Factura Electrónica DIAN",
+            variable=self._apply_dian,
+            checkmark_color="white", fg_color="#2980b9", hover_color="#3498db",
+            command=self._toggle_dian,
+            font=("Segoe UI", _sc(11), "bold"))
+        dian_chk.pack(anchor="w", padx=12, pady=(10,2))
+
+        self._dian_frame = ctk.CTkFrame(scroll, fg_color=CARD2, corner_radius=8)
+        W_label(self._dian_frame, "📋 Datos del cliente para la DIAN:", size=10, bold=True, color="#3498db").pack(
+            anchor="w", padx=10, pady=(8,4))
+
+        # Tipo doc
+        dr = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); dr.pack(fill="x", padx=10, pady=2)
+        W_label(dr, "Tipo doc:", size=9, color=DIM).pack(side="left")
+        self._cb_doc_type = W_combo(dr, ["CC","NIT","CE","PP","TI"], w=100)
+        self._cb_doc_type.set("CC"); self._cb_doc_type.pack(side="right")
+
+        # NIT/Cédula
+        nr = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); nr.pack(fill="x", padx=10, pady=2)
+        W_label(nr, "NIT / Cédula:", size=9, color=DIM).pack(side="left")
+        self._e_nit = W_entry(nr, "222222222222", w=200)
+        self._e_nit.insert(0, "222222222222"); self._e_nit.pack(side="right")
+
+        # Nombre
+        nmr = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); nmr.pack(fill="x", padx=10, pady=2)
+        W_label(nmr, "Nombre:", size=9, color=DIM).pack(side="left")
+        self._e_dian_name = W_entry(nmr, "Consumidor Final", w=200)
+        self._e_dian_name.insert(0, "Consumidor Final"); self._e_dian_name.pack(side="right")
+
+        # Email
+        emr = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); emr.pack(fill="x", padx=10, pady=(2,8))
+        W_label(emr, "Email:", size=9, color=DIM).pack(side="left")
+        self._e_email = W_entry(emr, "correo@ejemplo.com", w=200)
+        self._e_email.pack(side="right")
+
+        ctk.CTkFrame(scroll, fg_color="transparent", height=_sc(10)).pack()
+        self._upd_totals()
+
+    def _toggle_dian(self):
+        if self._apply_dian.get():
+            self._dian_frame.pack(fill="x", padx=12, pady=4)
+        else:
+            self._dian_frame.pack_forget()
+
+    def _upd_totals(self):
+        try: iva_pct = float(self.e_iva_pct.get() or 0) / 100
+        except: iva_pct = 0
+        iva   = round((self.sub - self.disc) * iva_pct, 0)
+        total_final = self.sub - self.disc + iva
+        self._l_sub.configure(text=fmt(self.sub))
+        self._l_disc.configure(text=f"- {fmt(self.disc)}")
+        self._l_iva.configure(text=fmt(iva))
+        self._l_total.configure(text=fmt(total_final))
+        self._iva = iva
+        self._total_final = total_final
+
+    def _emit(self):
+        self._upd_totals()
+        notes = self.e_notes.get().strip()
+
+        # ── Obtener cliente seleccionado en VentaPanel ──
+        try:
+            cv = self.master.cb_cli.get()
+            client_id = int(cv.strip().split()[0]) if cv and cv != "(sin cliente)" else None
+        except Exception:
+            client_id = None
+
+        # ── Refrescar sesión y registrar venta ──
+        try:
+            active_sess = self.db.get_active_session(self.user["id"])
+            sess_id = active_sess["id"] if active_sess else None
+            sid = self.db.create_sale(
+                client_id, self.user["id"], self.cart,
+                self.disc, self.payment, notes, sess_id)
+        except Exception as e:
+            log.error(f"Error registrando venta: {e}", exc_info=True)
+            messagebox.showerror("❌ Error", f"No se pudo guardar la venta:\n{e}", parent=self)
+            return
+
+        # ── Ticket de venta ──
+        try:
+            from_panel = self.master
+            if hasattr(from_panel, "_gen_ticket"):
+                from_panel._gen_ticket(sid, self.sub, self.disc, self._total_final, self.payment, notes, self.cambio)
+        except Exception as te:
+            log.warning(f"No se pudo generar ticket: {te}")
+
+        msg_venta = f"Venta #{sid}\n\nTotal: {fmt(self._total_final)}\nPago:  {self.payment}"
+        if self.cambio > 0: msg_venta += f"\nCambio: {fmt(self.cambio)}"
+
+        # ── Facturación Electrónica DIAN ──
+        if self._apply_dian.get():
+            try:
+                from factus_api import FactusClient, FactusError
+                factus = FactusClient(self.db)
+                if not factus.is_configured():
+                    messagebox.showwarning(
+                        "Facturación Electrónica",
+                        "Las credenciales de Factus no están configuradas.\n"
+                        "Ve a Configuración → Facturación Electrónica y completa los datos.",
+                        parent=self)
+                else:
+                    inv = self.db.create_invoice(sid, self.payment, self.disc, self._iva, notes)
+                    if inv:
+                        customer_data = {
+                            "doc_type":       self._cb_doc_type.get(),
+                            "identification": self._e_nit.get().strip() or "222222222222",
+                            "name":           self._e_dian_name.get().strip() or "Consumidor Final",
+                            "email":          self._e_email.get().strip() or "consumidor@final.com",
+                            "phone":          "",
+                            "address":        self.db.cfg("address") or "calle 1 # 1-1",
+                            "payment_method": self.payment,
+                        }
+                        calc = {
+                            "sub": self.sub, "disc": self.disc,
+                            "iva": self._iva, "total": self._total_final,
+                        }
+                        result = factus.crear_factura(
+                            sid, self.cart, calc, customer_data, inv["num"])
+                        self.db.update_invoice_dian(
+                            inv["id"], result.get("cufe",""), result.get("pdf_url",""))
+                        cufe_short = result.get("cufe","")[:30]
+                        messagebox.showinfo(
+                            "✅ Factura Electrónica DIAN",
+                            f"¡Factura emitida ante la DIAN exitosamente!\n\n"
+                            f"Número:  {result.get('number','')}\n"
+                            f"CUFE:    {cufe_short}...\n\n"
+                            f"{result.get('message','')}",
+                            parent=self)
+            except ImportError:
+                messagebox.showerror("Error",
+                    "No se encontró el módulo factus_api.py.\n"
+                    "Verifica que el archivo existe en la carpeta del programa.", parent=self)
+            except Exception as fe:
+                messagebox.showerror("Error Facturación Electrónica",
+                    f"No se pudo emitir la factura electrónica:\n\n{str(fe)}", parent=self)
+
+        messagebox.showinfo("✅ Venta registrada", msg_venta)
+        self.destroy()
+        if self.on_done:
+            self.on_done()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2704,12 +3012,82 @@ class ConfigPanel(BasePanel):
         W_btn(btn_row, "🧪  Prueba", _test_printer, color=OK, w=90, h=36).pack(side="left", padx=6)
         W_btn(btn_row, "🔍  Buscar", _refresh_printers, color="#444", w=90, h=36).pack(side="left")
 
+        # ══════════════════════════════════════════════════════════════
+        # FILA 1 — Facturación Electrónica DIAN (Factus)
+        # ══════════════════════════════════════════════════════════════
+        factus_card = W_card(cols)
+        factus_card.grid(row=1, column=0, columnspan=2, sticky="ew",
+                         padx=0, pady=(8, 0))
+
+        W_label(factus_card, "📄 Facturación Electrónica DIAN — Factus",
+                bold=True, color="#3498db").pack(pady=(16, 2))
+        W_label(factus_card,
+                "Completa estos datos para emitir facturas electrónicas válidas ante la DIAN de Colombia.",
+                size=9, color=DIM).pack()
+        W_sep(factus_card)
+
+        factus_grid = ctk.CTkFrame(factus_card, fg_color="transparent")
+        factus_grid.pack(padx=20, pady=10, fill="x")
+        factus_grid.columnconfigure(1, weight=1)
+        factus_grid.columnconfigure(3, weight=1)
+
+        factus_fields = [
+            # (fila, col_lbl, col_entry, label, key, es_password)
+            (0, 0, 1, "Client ID",            "factus_client_id",          False),
+            (0, 2, 3, "Client Secret",         "factus_client_secret",       True),
+            (1, 0, 1, "Email (usuario Factus)","factus_username",            False),
+            (1, 2, 3, "Contraseña Factus",     "factus_password",             True),
+            (2, 0, 1, "Numbering Range ID",    "factus_numbering_range_id",  False),
+            (2, 2, 3, "Código Municipio DIAN", "factus_municipality_code",   False),
+            (3, 0, 1, "Prefijo de Factura",    "invoice_prefix",             False),
+        ]
+        self._factus_entries = {}
+        env_options = ["sandbox", "production"]
+        for row_i, col_l, col_e, lbl_txt, key, is_pw in factus_fields:
+            W_label(factus_grid, lbl_txt, size=10, color=DIM).grid(
+                row=row_i, column=col_l, sticky="w", pady=6, padx=(0 if col_l==0 else 16, 8))
+            e = W_entry(factus_grid, pw=is_pw, w=200)
+            v = self.db.cfg(key)
+            if v: e.insert(0, v)
+            e.grid(row=row_i, column=col_e, sticky="ew", pady=6)
+            self._factus_entries[key] = e
+
+        # Entorno (combo)
+        W_label(factus_grid, "Entorno", size=10, color=DIM).grid(
+            row=3, column=2, sticky="w", pady=6, padx=(16, 8))
+        self._cb_factus_env = W_combo(factus_grid, env_options, w=200)
+        saved_env = self.db.cfg("factus_environment") or "sandbox"
+        self._cb_factus_env.set(saved_env if saved_env in env_options else "sandbox")
+        self._cb_factus_env.grid(row=3, column=3, sticky="ew", pady=6)
+
+        # Info ayuda
+        W_label(factus_card,
+                "🔑 Obtén tus credenciales en factus.com.co → Desarrolladores → Aplicaciones",
+                size=9, color=DIM).pack(pady=(0, 4))
+        W_label(factus_card,
+                "🌐 Usa 'sandbox' para pruebas y 'production' cuando tengas habilitación de la DIAN.",
+                size=9, color=DIM).pack(pady=(0, 4))
+
+        def _save_factus():
+            for key, widget in self._factus_entries.items():
+                self.db.set_cfg(key, widget.get().strip())
+            self.db.set_cfg("factus_environment", self._cb_factus_env.get())
+            messagebox.showinfo("✅ Factus",
+                "Credenciales de Factus guardadas correctamente.\n"
+                "Podrás emitir facturas DIAN desde el Punto de Venta.")
+            log.info("Configuración de Factus actualizada.")
+
+        W_btn(factus_card, "💾  Guardar configuración Factus",
+              _save_factus, color="#2980b9", w=280, h=42).pack(pady=(8, 16))
+
     def _save(self):
         for key, e in self.entries.items():
             self.db.set_cfg(key, e.get().strip())
         messagebox.showinfo("✅ Guardado",
             "Configuración guardada.\nReinicia para aplicar cambios de nombre/logo.")
         log.info("Configuración general actualizada")
+
+
 
 
 # ═══════════════════════════════════════════════════════════════
