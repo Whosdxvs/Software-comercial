@@ -1813,8 +1813,8 @@ class VentaPanel(BasePanel):
         if not self.cart: messagebox.showinfo("Carrito vacío","Agrega productos primero"); return
         try:    disc = float(self.e_disc.get() or 0)
         except: disc = 0
-        sub   = sum(i["subtotal"] for i in self.cart)
-        total = sub - disc
+        sub     = sum(i["subtotal"] for i in self.cart)
+        total   = sub - disc
         payment = self.cb_pay.get()
         if payment == "crédito":
             cv = self.cb_cli.get()
@@ -1833,55 +1833,195 @@ class VentaPanel(BasePanel):
             e_rec = W_entry(dlg, "0", w=280); e_rec.pack(); e_rec.focus()
             l_cambio = W_label(dlg, fmt(0), size=24, bold=True, color=ACC); l_cambio.pack(pady=6)
             W_label(dlg, "Cambio", size=9, color=DIM).pack()
-
             def upd(*_):
                 try:    rec = float(e_rec.get() or 0)
                 except: rec = 0
                 cambio = rec - total
                 l_cambio.configure(text=fmt(max(0,cambio)), text_color=OK if cambio>=0 else ERR)
-
             e_rec.bind("<KeyRelease>", upd)
-
-            def confirmar():
+            def confirmar_efectivo():
                 try:    rec = float(e_rec.get() or 0)
                 except: rec = 0
                 if rec < total:
                     messagebox.showwarning("Pago insuficiente",f"El pago mínimo es {fmt(total)}",parent=dlg); return
                 cambio = rec - total
-                dlg.withdraw()
-                dlg.destroy()
-                # Abrir diálogo DIAN después de confirmar efectivo
-                FacturacionDialog(self, self.db, self.user, self.cart, sub, disc, total, payment, cambio, self._on_sale_done)
-
-            W_btn(dlg, "✅  Confirmar y Registrar", confirmar, color=OK, w=280, h=44).pack(padx=40, pady=14)
-            e_rec.bind("<Return>", lambda _: confirmar())
+                dlg.withdraw(); dlg.destroy()
+                self.after(50, lambda: self._abrir_dialogo_venta(sub, disc, total, payment, cambio))
+            W_btn(dlg, "✅  Confirmar y Registrar", confirmar_efectivo, color=OK, w=280, h=44).pack(padx=40, pady=14)
+            e_rec.bind("<Return>", lambda _: confirmar_efectivo())
         else:
-            FacturacionDialog(self, self.db, self.user, self.cart, sub, disc, total, payment, 0, self._on_sale_done)
+            self.after(50, lambda: self._abrir_dialogo_venta(sub, disc, total, payment, 0))
 
-    def _on_sale_done(self):
-        self._clear(); self._search_prod()
+    def _abrir_dialogo_venta(self, sub, disc, total, payment, cambio):
+        """Abre el diálogo de registro de venta con opción de factura electrónica DIAN."""
+        # ── Estado interno del diálogo ──
+        iva_state    = {"val": 0.0}
+        total_state  = {"val": sub - disc}
 
-    def _register_sale(self, sub, disc, total, payment, cambio,
-                       notes="", dian_data=None):
-        """Registra la venta en la BD y opcionalmente emite factura electrónica DIAN."""
-        try:
-            cv = self.cb_cli.get(); client_id = None
-            if cv and cv != "(sin cliente)":
-                try:
+        # ── Ventana ──
+        dlg = ctk.CTkToplevel(self.winfo_toplevel())
+        dlg.title("💳 Registrar Venta")
+        dlg.geometry("500x580")
+        dlg.resizable(False, True)
+        dlg.configure(fg_color=BG)
+        dlg.grab_set()
+        dlg.lift()
+        dlg.focus_force()
+
+        # ── Botones (fijados abajo) ──
+        bf = ctk.CTkFrame(dlg, fg_color=CARD2, corner_radius=0, height=60)
+        bf.pack(side="bottom", fill="x"); bf.pack_propagate(False)
+        br = ctk.CTkFrame(bf, fg_color="transparent")
+        br.pack(fill="both", expand=True, padx=14, pady=8)
+        W_btn(br, "✕ Cancelar", dlg.destroy, color="#444", w=110, h=40).pack(side="left")
+
+        def _registrar():
+            _do_register()
+        W_btn(br, "✅ Registrar Venta", _registrar, color=OK, w=230, h=40).pack(side="right")
+
+        # ── Cuerpo ──
+        body = ctk.CTkFrame(dlg, fg_color=BG, corner_radius=0)
+        body.pack(side="top", fill="both", expand=True, padx=14, pady=10)
+
+        W_label(body, "🛒 Resumen de Venta", size=14, bold=True, color=ACC).pack(pady=(0,6))
+
+        # Ítems
+        ibox = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
+        ibox.pack(fill="x", pady=(0,4))
+        W_label(ibox, "🧾 Ítems", size=9, color=DIM).pack(anchor="w", padx=10, pady=(4,2))
+        for it in self.cart:
+            r = ctk.CTkFrame(ibox, fg_color="transparent"); r.pack(fill="x", padx=10, pady=1)
+            try: qty_s = f"x{int(it['quantity'])}" if float(it['quantity'])==int(it['quantity']) else str(it['quantity'])
+            except: qty_s = str(it.get('quantity',''))
+            W_label(r, f"{qty_s}  {it['product_name']}", size=10).pack(side="left")
+            W_label(r, fmt(it["subtotal"]), size=10, color=OK).pack(side="right")
+        ctk.CTkFrame(ibox, fg_color="transparent", height=4).pack()
+
+        # IVA
+        iva_row = ctk.CTkFrame(body, fg_color="transparent"); iva_row.pack(fill="x", pady=(4,0))
+        W_label(iva_row, "IVA (%):", size=10, color=DIM).pack(side="left")
+        e_iva = W_entry(iva_row, "0", w=68)
+        e_iva.insert(0, self.db.cfg("tax_percent") or "0")
+        e_iva.pack(side="left", padx=6)
+        W_label(iva_row, "(0 = sin IVA)", size=9, color=DIM).pack(side="left")
+
+        # Totales
+        tbox = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
+        tbox.pack(fill="x", pady=4)
+        labels_tot = {}
+        for attr, txt, col in [("sub","Subtotal:",TEXT),("disc","Descuento:",ERR),("iva","IVA:",DIM),("total","TOTAL FINAL:",OK)]:
+            rw = ctk.CTkFrame(tbox, fg_color="transparent"); rw.pack(fill="x", padx=10, pady=1)
+            bold = attr=="total"; sz = 13 if bold else 10
+            W_label(rw, txt, size=sz, color=col, bold=bold).pack(side="left")
+            v = W_label(rw, fmt(0), size=sz, color=col, bold=bold); v.pack(side="right")
+            labels_tot[attr] = v
+
+        def _upd_totals(*_):
+            try: pct = float(e_iva.get() or 0) / 100
+            except: pct = 0
+            iva   = round((sub - disc) * pct, 0)
+            tf    = sub - disc + iva
+            iva_state["val"]   = iva
+            total_state["val"] = tf
+            labels_tot["sub"].configure(text=fmt(sub))
+            labels_tot["disc"].configure(text=f"- {fmt(disc)}")
+            labels_tot["iva"].configure(text=fmt(iva))
+            labels_tot["total"].configure(text=fmt(tf))
+        e_iva.bind("<KeyRelease>", _upd_totals)
+        _upd_totals()
+
+        # Notas
+        W_label(body, "Notas (opcional):", size=9, color=DIM).pack(anchor="w", pady=(4,0))
+        e_notes = W_entry(body, "", w=460); e_notes.pack(fill="x", pady=(2,4))
+
+        # Checkbox DIAN
+        apply_dian = tk.BooleanVar(value=False)
+        dian_frame = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
+
+        def _toggle_dian():
+            if apply_dian.get(): dian_frame.pack(fill="x", pady=2)
+            else:                dian_frame.pack_forget()
+
+        ctk.CTkCheckBox(
+            body, text="📄 Emitir Factura Electrónica DIAN (opcional)",
+            variable=apply_dian, command=_toggle_dian,
+            checkmark_color="white", fg_color="#2980b9", hover_color="#3498db",
+            font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w", pady=(2,0))
+
+        # Panel DIAN (oculto por defecto)
+        W_label(dian_frame, "📋 Datos para la DIAN:", size=10, bold=True, color="#3498db").pack(anchor="w", padx=10, pady=(6,2))
+        # Tipo doc
+        dr = ctk.CTkFrame(dian_frame, fg_color="transparent"); dr.pack(fill="x", padx=10, pady=2)
+        W_label(dr, "Tipo doc:", size=9, color=DIM).pack(side="left")
+        cb_doc = W_combo(dr, ["CC","NIT","CE","PP","TI"], w=100); cb_doc.set("CC"); cb_doc.pack(side="right")
+        # NIT
+        nr = ctk.CTkFrame(dian_frame, fg_color="transparent"); nr.pack(fill="x", padx=10, pady=2)
+        W_label(nr, "NIT/Cédula:", size=9, color=DIM).pack(side="left")
+        e_nit = W_entry(nr, "222222222222", w=190); e_nit.insert(0,"222222222222"); e_nit.pack(side="right")
+        # Nombre
+        nmr = ctk.CTkFrame(dian_frame, fg_color="transparent"); nmr.pack(fill="x", padx=10, pady=2)
+        W_label(nmr, "Nombre:", size=9, color=DIM).pack(side="left")
+        e_nombre = W_entry(nmr, "Consumidor Final", w=190); e_nombre.insert(0,"Consumidor Final"); e_nombre.pack(side="right")
+        # Email
+        emr = ctk.CTkFrame(dian_frame, fg_color="transparent"); emr.pack(fill="x", padx=10, pady=(2,6))
+        W_label(emr, "Email:", size=9, color=DIM).pack(side="left")
+        e_email = W_entry(emr, "correo@ejemplo.com", w=190); e_email.pack(side="right")
+
+        # ── Lógica de registro ──
+        def _do_register():
+            notes = e_notes.get().strip()
+            # Cliente
+            client_id = None
+            try:
+                cv = self.cb_cli.get()
+                if cv and cv != "(sin cliente)":
                     client_id = int(cv.strip().split()[0])
-                except Exception:
-                    client_id = None
-            self.active_sess = self.db.get_active_session(self.user["id"])
-            sess_id = self.active_sess["id"] if self.active_sess else None
-            sid = self.db.create_sale(client_id, self.user["id"], self.cart, disc, payment, notes, sess_id)
-            self._gen_ticket(sid, sub, disc, total, payment, notes, cambio)
-            msg = f"Venta #{sid}\n\nTotal: {fmt(total)}\nPago:  {payment}"
+            except Exception: pass
+            # Sesión
+            try:
+                active_sess = self.db.get_active_session(self.user["id"])
+                sess_id = active_sess["id"] if active_sess else None
+                sid = self.db.create_sale(
+                    client_id, self.user["id"], self.cart,
+                    disc, payment, notes, sess_id)
+            except Exception as e:
+                log.error(f"Error registrando venta: {e}", exc_info=True)
+                messagebox.showerror("❌ Error", f"No se pudo guardar la venta:\n{e}", parent=dlg); return
+            # Ticket
+            try: self._gen_ticket(sid, sub, disc, total_state["val"], payment, notes, cambio)
+            except Exception as te: log.warning(f"Ticket: {te}")
+            # Factura DIAN
+            if apply_dian.get():
+                try:
+                    from factus_api import FactusClient, FactusError
+                    factus = FactusClient(self.db)
+                    if not factus.is_configured():
+                        messagebox.showwarning("Factus","Credenciales no configuradas.\nVe a Configuración → Facturación Electrónica.",parent=dlg)
+                    else:
+                        inv = self.db.create_invoice(sid, payment, disc, iva_state["val"], notes)
+                        if inv:
+                            result = factus.crear_factura(sid, self.cart,
+                                {"sub":sub,"disc":disc,"iva":iva_state["val"],"total":total_state["val"]},
+                                {"doc_type":cb_doc.get(),"identification":e_nit.get().strip() or "222222222222",
+                                 "name":e_nombre.get().strip() or "Consumidor Final",
+                                 "email":e_email.get().strip() or "consumidor@final.com",
+                                 "phone":"","address":self.db.cfg("address") or "calle 1 # 1-1",
+                                 "payment_method":payment}, inv["num"])
+                            self.db.update_invoice_dian(inv["id"],result.get("cufe",""),result.get("pdf_url",""))
+                            messagebox.showinfo("✅ Factura DIAN",
+                                f"Factura emitida!\nNúmero: {result.get('number','')}\n"
+                                f"CUFE: {result.get('cufe','')[:30]}...",parent=dlg)
+                except ImportError:
+                    messagebox.showerror("Error","No se encontró factus_api.py",parent=dlg)
+                except Exception as fe:
+                    messagebox.showerror("Error Facturación",str(fe),parent=dlg)
+            # Confirmación final
+            msg = f"Venta #{sid}\n\nTotal: {fmt(total_state['val'])}\nPago:  {payment}"
             if cambio > 0: msg += f"\nCambio: {fmt(cambio)}"
+            dlg.destroy()
             messagebox.showinfo("✅ Venta registrada", msg)
-        except Exception as e:
-            log.error(f"Error registrando venta: {e}", exc_info=True)
-            messagebox.showerror("❌ Error al registrar venta",
-                f"No se pudo guardar la venta:\n\n{e}\n\nRevisa el archivo de log para más detalles.")
+            self._clear(); self._search_prod()
 
 
 
@@ -1992,244 +2132,15 @@ class VentaPanel(BasePanel):
 
 
 # ═══════════════════════════════════════════════════════════════
-# FACTURACIÓN ELECTRÓNICA DIAN — DIÁLOGO
+# CIERRE DE CAJA
 # ═══════════════════════════════════════════════════════════════
-class FacturacionDialog(ctk.CTkToplevel):
-    """
-    Diálogo que aparece al cobrar una venta.
-    - Registra la venta en la BD.
-    - Opcionalmente emite factura electrónica ante la DIAN vía Factus.
-    """
-    def __init__(self, master, db, user, cart, sub, disc, total,
-                 payment, cambio, on_done_cb):
-        # Usar la ventana raíz como parent para evitar problemas con CTkFrame como master
-        root = master.winfo_toplevel()
-        super().__init__(root)
-        self._venta_panel = master   # referencia directa al VentaPanel
-        self.db      = db
-        self.user    = user
-        self.cart    = cart
-        self.sub     = sub
-        self.disc    = disc
-        self.total   = total
-        self.payment = payment
-        self.cambio  = cambio
-        self.on_done = on_done_cb
-        self._iva         = 0.0
-        self._total_final = sub - disc
 
-        self.title("💳 Registrar Venta")
-        self.geometry(f"{_sc(500)}x{_sc(600)}")
-        self.resizable(False, True)
-        self.configure(fg_color=BG)
-        self.grab_set()
-        self._build()
-        self.wait_window()
-
-    def _build(self):
-        # ── Botones fijos al fondo (pack PRIMERO para reservar espacio) ──
-        btn_bar = ctk.CTkFrame(self, fg_color=CARD2, corner_radius=0, height=_sc(60))
-        btn_bar.pack(side="bottom", fill="x"); btn_bar.pack_propagate(False)
-        brow = ctk.CTkFrame(btn_bar, fg_color="transparent")
-        brow.pack(fill="both", expand=True, padx=_sc(16), pady=_sc(8))
-        W_btn(brow, "✕ Cancelar", self.destroy, color="#444", w=120, h=40).pack(side="left")
-        W_btn(brow, "✅ Registrar Venta", self._emit, color=OK, w=240, h=40).pack(side="right")
-
-        # ── Área de contenido (frame normal, sin scroll — todo cabe) ──
-        body = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        body.pack(side="top", fill="both", expand=True, padx=_sc(16), pady=_sc(12))
-
-        W_label(body, "🛒 Resumen de Venta", size=14, bold=True, color=ACC).pack(pady=(0,8))
-
-        # ── Ítems del carrito ──
-        items_box = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
-        items_box.pack(fill="x", pady=(0,6))
-        W_label(items_box, "🧾 Ítems de la venta", size=9, color=DIM).pack(
-            anchor="w", padx=10, pady=(6,2))
-        for it in self.cart:
-            r = ctk.CTkFrame(items_box, fg_color="transparent"); r.pack(fill="x", padx=10, pady=1)
-            try:
-                qty_s = f"x{int(it['quantity'])}" if float(it['quantity']) == int(it['quantity']) else f"{it['quantity']}"
-            except Exception:
-                qty_s = str(it.get('quantity', ''))
-            W_label(r, f"{qty_s}  {it['product_name']}", size=10).pack(side="left")
-            W_label(r, fmt(it["subtotal"]), size=10, color=OK).pack(side="right")
-        ctk.CTkFrame(items_box, fg_color="transparent", height=4).pack()
-
-        # ── IVA ──
-        iva_row = ctk.CTkFrame(body, fg_color="transparent"); iva_row.pack(fill="x", pady=(4,0))
-        W_label(iva_row, "IVA (%):", size=10, color=DIM).pack(side="left")
-        self.e_iva_pct = W_entry(iva_row, "0", w=70)
-        tax_pct = self.db.cfg("tax_percent") or "0"
-        self.e_iva_pct.insert(0, tax_pct)
-        self.e_iva_pct.pack(side="left", padx=8)
-        self.e_iva_pct.bind("<KeyRelease>", lambda _: self._upd_totals())
-        W_label(iva_row, "(0 = sin IVA)", size=9, color=DIM).pack(side="left")
-
-        # ── Totales ──
-        tot_box = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
-        tot_box.pack(fill="x", pady=6)
-        for attr, lbl_txt, color in [
-            ("_l_sub",   "Subtotal:",    TEXT),
-            ("_l_disc",  "Descuento:",   ERR),
-            ("_l_iva",   "IVA:",         DIM),
-            ("_l_total", "TOTAL FINAL:", OK),
-        ]:
-            rw = ctk.CTkFrame(tot_box, fg_color="transparent"); rw.pack(fill="x", padx=12, pady=2)
-            bold = attr == "_l_total"; sz = 13 if bold else 10
-            W_label(rw, lbl_txt, size=sz, color=color, bold=bold).pack(side="left")
-            v = W_label(rw, fmt(0), size=sz, color=color, bold=bold); v.pack(side="right")
-            setattr(self, attr, v)
-
-        # ── Notas ──
-        W_label(body, "Notas (opcional):", size=9, color=DIM).pack(anchor="w", pady=(6,0))
-        self.e_notes = W_entry(body, "", w=460); self.e_notes.pack(fill="x", pady=(2,6))
-
-        # ── Checkbox DIAN ──
-        self._apply_dian = tk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
-            body, text="📄 Emitir Factura Electrónica DIAN (opcional)",
-            variable=self._apply_dian,
-            checkmark_color="white", fg_color="#2980b9", hover_color="#3498db",
-            command=self._toggle_dian,
-            font=("Segoe UI", _sc(11), "bold")
-        ).pack(anchor="w", pady=(4, 2))
-
-        # ── Panel datos DIAN (oculto por defecto) ──
-        self._dian_frame = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
-        W_label(self._dian_frame, "📋 Datos para la DIAN:", size=10, bold=True, color="#3498db").pack(
-            anchor="w", padx=10, pady=(8,4))
-
-        for lbl_txt, attr_name, ph, is_pw in [
-            ("Tipo doc:",     None,            None,                   False),
-            ("NIT/Cédula:",   "_e_nit",        "222222222222",         False),
-            ("Nombre:",       "_e_dian_name",  "Consumidor Final",     False),
-            ("Email:",        "_e_email",      "correo@ejemplo.com",   False),
-        ]:
-            if attr_name is None:
-                # Combo tipo doc
-                dr = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); dr.pack(fill="x", padx=10, pady=2)
-                W_label(dr, "Tipo doc:", size=9, color=DIM).pack(side="left")
-                self._cb_doc_type = W_combo(dr, ["CC","NIT","CE","PP","TI"], w=100)
-                self._cb_doc_type.set("CC"); self._cb_doc_type.pack(side="right")
-            else:
-                row = ctk.CTkFrame(self._dian_frame, fg_color="transparent"); row.pack(fill="x", padx=10, pady=2)
-                W_label(row, lbl_txt, size=9, color=DIM).pack(side="left")
-                e = W_entry(row, ph, w=200, pw=is_pw)
-                if attr_name == "_e_dian_name": e.insert(0, "Consumidor Final")
-                elif attr_name == "_e_nit":     e.insert(0, "222222222222")
-                e.pack(side="right")
-                setattr(self, attr_name, e)
-        ctk.CTkFrame(self._dian_frame, fg_color="transparent", height=4).pack()
-
-        self._upd_totals()
-
-    def _toggle_dian(self):
-        if self._apply_dian.get():
-            self._dian_frame.pack(fill="x", pady=4)
-        else:
-            self._dian_frame.pack_forget()
-
-    def _upd_totals(self):
-        try: iva_pct = float(self.e_iva_pct.get() or 0) / 100
-        except: iva_pct = 0
-        iva         = round((self.sub - self.disc) * iva_pct, 0)
-        total_final = self.sub - self.disc + iva
-        self._l_sub.configure(text=fmt(self.sub))
-        self._l_disc.configure(text=f"- {fmt(self.disc)}")
-        self._l_iva.configure(text=fmt(iva))
-        self._l_total.configure(text=fmt(total_final))
-        self._iva         = iva
-        self._total_final = total_final
-
-    def _emit(self):
-        self._upd_totals()
-        notes = self.e_notes.get().strip()
-
-        # ── Cliente seleccionado en VentaPanel ──
-        client_id = None
-        try:
-            cv = self._venta_panel.cb_cli.get()
-            if cv and cv != "(sin cliente)":
-                client_id = int(cv.strip().split()[0])
-        except Exception:
-            pass
-
-        # ── Registrar venta ──
-        try:
-            active_sess = self.db.get_active_session(self.user["id"])
-            sess_id = active_sess["id"] if active_sess else None
-            sid = self.db.create_sale(
-                client_id, self.user["id"], self.cart,
-                self.disc, self.payment, notes, sess_id)
-        except Exception as e:
-            log.error(f"Error registrando venta: {e}", exc_info=True)
-            messagebox.showerror("❌ Error", f"No se pudo guardar la venta:\n{e}", parent=self)
-            return
-
-        # ── Ticket ──
-        try:
-            if hasattr(self._venta_panel, "_gen_ticket"):
-                self._venta_panel._gen_ticket(
-                    sid, self.sub, self.disc, self._total_final,
-                    self.payment, notes, self.cambio)
-        except Exception as te:
-            log.warning(f"No se pudo generar ticket: {te}")
-
-        msg_venta = f"Venta #{sid}\n\nTotal: {fmt(self._total_final)}\nPago:  {self.payment}"
-        if self.cambio > 0: msg_venta += f"\nCambio: {fmt(self.cambio)}"
-
-        # ── Facturación Electrónica DIAN ──
-        if self._apply_dian.get():
-            try:
-                from factus_api import FactusClient, FactusError
-                factus = FactusClient(self.db)
-                if not factus.is_configured():
-                    messagebox.showwarning(
-                        "Facturación Electrónica",
-                        "Las credenciales de Factus no están configuradas.\n"
-                        "Ve a Configuración → Facturación Electrónica.",
-                        parent=self)
-                else:
-                    inv = self.db.create_invoice(sid, self.payment, self.disc, self._iva, notes)
-                    if inv:
-                        customer_data = {
-                            "doc_type":       self._cb_doc_type.get(),
-                            "identification": self._e_nit.get().strip() or "222222222222",
-                            "name":           self._e_dian_name.get().strip() or "Consumidor Final",
-                            "email":          self._e_email.get().strip() or "consumidor@final.com",
-                            "phone":          "",
-                            "address":        self.db.cfg("address") or "calle 1 # 1-1",
-                            "payment_method": self.payment,
-                        }
-                        calc = {"sub": self.sub, "disc": self.disc,
-                                "iva": self._iva, "total": self._total_final}
-                        result = factus.crear_factura(sid, self.cart, calc, customer_data, inv["num"])
-                        self.db.update_invoice_dian(
-                            inv["id"], result.get("cufe",""), result.get("pdf_url",""))
-                        messagebox.showinfo(
-                            "✅ Factura Electrónica DIAN",
-                            f"¡Factura emitida ante la DIAN!\n\n"
-                            f"Número: {result.get('number','')}\n"
-                            f"CUFE:   {result.get('cufe','')[:30]}...\n\n"
-                            f"{result.get('message','')}",
-                            parent=self)
-            except ImportError:
-                messagebox.showerror("Error",
-                    "No se encontró factus_api.py en la carpeta del programa.", parent=self)
-            except Exception as fe:
-                messagebox.showerror("Error Facturación",
-                    f"No se pudo emitir la factura:\n\n{str(fe)}", parent=self)
-
-        messagebox.showinfo("✅ Venta registrada", msg_venta)
-        self.destroy()
-        if self.on_done:
-            self.on_done()
 
 
 # ═══════════════════════════════════════════════════════════════
 # CIERRE DE CAJA
 # ═══════════════════════════════════════════════════════════════
+
 
 class CierreCajaPanel(BasePanel):
     def __init__(self, master, db, user):
