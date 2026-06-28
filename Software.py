@@ -70,7 +70,9 @@ class LicenseManager:
         Retorna un dict con los datos del payload o lanza ValueError.
         """
         try:
-            decoded = _b64.b64decode(key_str).decode("utf-8")
+            # Restaurar padding base64 si se perdió al copiar/pegar
+            padded_key = key_str + "=" * ((4 - len(key_str) % 4) % 4)
+            decoded = _b64.b64decode(padded_key).decode("utf-8")
             payload_str, signature = decoded.split("|", 1)
             expected = hmac.new(_SECRET_KEY, payload_str.encode("utf-8"),
                                 hashlib.sha256).hexdigest()
