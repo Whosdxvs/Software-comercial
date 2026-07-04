@@ -1,7 +1,7 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 
-datas = []
+datas = [('logo.ico', '.'), ('logo.png', '.')]
 datas += collect_data_files('escpos')
 
 
@@ -10,11 +10,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=['matplotlib', 'pandas'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['scipy', 'torch', 'PyQt5', 'PySide6', 'PySide2', 'PyQt6', 'IPython', 'notebook', 'jedi', 'sphinx', 'pytest'],
     noarchive=False,
     optimize=0,
 )
@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='Software',
+    name='GestPro',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -39,4 +39,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='logo.ico',
 )
+

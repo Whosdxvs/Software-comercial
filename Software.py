@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-GestiónPro v2.0 Comercial
+GestPro v2.0 Comercial
 Sistema de gestión para cualquier tipo de negocio.
 SQLite · Inventario · POS · Caja · Informes · Excel · Gráficos
 """
@@ -13,33 +13,47 @@ try:
     import customtkinter as ctk
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
+    
+    # Patch para inyectar el ícono en todas las ventanas y diálogos
+    def _apply_icon(win):
+        try:
+            base = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(os.path.abspath(__file__))
+            ico = os.path.join(base, "logo.ico")
+            if os.path.exists(ico):
+                win.iconbitmap(ico)
+                try: win.iconbitmap(default=ico)
+                except: pass
+        except: pass
+
+    _orig_ctk_init = ctk.CTk.__init__
+    def _new_ctk_init(self, *args, **kwargs):
+        _orig_ctk_init(self, *args, **kwargs)
+        self.after(10, lambda: _apply_icon(self))
+    ctk.CTk.__init__ = _new_ctk_init
+
+    _orig_top_init = ctk.CTkToplevel.__init__
+    def _new_top_init(self, *args, **kwargs):
+        _orig_top_init(self, *args, **kwargs)
+        self.after(200, lambda: _apply_icon(self))
+    ctk.CTkToplevel.__init__ = _new_top_init
+
 except ImportError:
     raise SystemExit("Ejecuta: pip install customtkinter")
 
-try:
-    import matplotlib
-    matplotlib.use("TkAgg")
-    from matplotlib.figure import Figure
-    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-    import matplotlib.pyplot as plt
-    HAS_MPL = True
-except ImportError:
-    HAS_MPL = False
+def HAS_MPL():
+    import importlib.util
+    return importlib.util.find_spec("matplotlib") is not None
 
-try:
-    import pandas as pd
-    HAS_PD = True
-except ImportError:
-    HAS_PD = False
+def HAS_PD():
+    import importlib.util
+    return importlib.util.find_spec("pandas") is not None
 
-try:
-    from escpos.printer import Usb, Serial, Network, Win32Raw
-    HAS_ESCPOS = True
-except ImportError:
-    HAS_ESCPOS = False
+def HAS_ESCPOS():
+    import importlib.util
+    return importlib.util.find_spec("escpos") is not None
 
 # ── Logging ──────────────────────────────────────────────────
-_log_file = f"gestionpro_{date.today():%Y%m%d}.log"
+_log_file = f"GestPro_{date.today():%Y%m%d}.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -49,7 +63,7 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
-log = logging.getLogger("GestiónPro")
+log = logging.getLogger("GestPro")
 
 # ── Licencia (sistema de key de uso único) ───────────────────
 import base64 as _b64
@@ -147,7 +161,7 @@ class ActivationWindow(ctk.CTk):
         self._db = db
         self._lm = LicenseManager(db)
         self.success = False
-        self.title("GestiónPro — Activación de Software")
+        self.title("GestPro — Activación de Software")
         self.geometry("480x340")
         self.resizable(False, False)
         self.configure(fg_color="#181818")
@@ -187,7 +201,7 @@ class ActivationWindow(ctk.CTk):
         try:
             self._lm.activate(key)
             messagebox.showinfo("Éxito",
-                "¡Software activado correctamente!\nGracias por confiar en GestiónPro.", parent=self)
+                "¡Software activado correctamente!\nGracias por confiar en GestPro.", parent=self)
             self.success = True
             self.destroy()
         except ValueError as e:
@@ -267,7 +281,7 @@ def _sc(n: int) -> int:
 # BASE DE DATOS
 # ═══════════════════════════════════════════════════════════════
 class DB:
-    def __init__(self, path="gestionpro.db"):
+    def __init__(self, path="GestPro.db"):
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA foreign_keys = ON")
@@ -315,7 +329,7 @@ class DB:
             user_id INTEGER NOT NULL REFERENCES users(id),
             opened_at TEXT NOT NULL, closed_at TEXT,
             initial_cash REAL NOT NULL DEFAULT 0,
-            actual_cash REAL DEFAULT 0, status TEXT NOT NULL DEFAULT 'open');
+            actual_cash REAL DEFAULT 0, expected_cash REAL DEFAULT 0, difference REAL DEFAULT 0, notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open');
         CREATE TABLE IF NOT EXISTS cash_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL REFERENCES cash_sessions(id) ON DELETE CASCADE,
@@ -384,6 +398,9 @@ class DB:
             ("products",       "min_stock",     "INTEGER NOT NULL DEFAULT 5"),
             ("products",       "unit",          "TEXT NOT NULL DEFAULT 'unidad'"),
             ("cash_sessions",  "actual_cash",   "REAL DEFAULT 0"),
+            ("cash_sessions",  "expected_cash", "REAL DEFAULT 0"),
+            ("cash_sessions",  "difference",    "REAL DEFAULT 0"),
+            ("cash_sessions",  "notes",         "TEXT NOT NULL DEFAULT ''"),
             ("clients",        "debt",          "REAL NOT NULL DEFAULT 0"),
             ("invoices",       "cufe",          "TEXT NOT NULL DEFAULT ''"),
             ("invoices",       "pdf_url",       "TEXT NOT NULL DEFAULT ''"),
@@ -524,7 +541,8 @@ class DB:
         return fixed
 
     def import_excel(self, filepath):
-        if not HAS_PD: raise ImportError("pip install pandas openpyxl")
+        if not HAS_PD(): raise ImportError("pip install pandas openpyxl")
+        import pandas as pd
         df = pd.read_excel(filepath)
         col_map = {
             "name":     ["Nombre","nombre","Producto","producto"],
@@ -569,7 +587,7 @@ class DB:
                 if pd.isna(stock) or stock<0: stock=0
                 if not supplier or supplier.lower() in ("nan",""): supplier="Importado"
                 if not category or category.lower() in ("nan",""): category="General"
-                self.add_product(name, sku, barcode, category, price, cost, supplier, stock, 5, unit)
+                self.add_product(name, sku, barcode, category, price, cost, supplier, stock, int(self.cfg("low_stock_limit") or 5), unit)
                 existing_names.add(name.lower()); imported+=1
             except Exception as exc:
                 log.warning(f"Error importando fila: {exc}"); errors+=1
@@ -577,7 +595,8 @@ class DB:
         return {"importados": imported, "duplicados": dupes, "errores": errors}
 
     def export_excel(self, filepath):
-        if not HAS_PD: raise ImportError("pip install pandas openpyxl")
+        if not HAS_PD(): raise ImportError("pip install pandas openpyxl")
+        import pandas as pd
         products = self.get_all_products()
         df = pd.DataFrame(products)
         df = df.rename(columns={"name":"Nombre","sku":"SKU","barcode":"Código Barras",
@@ -622,10 +641,10 @@ class DB:
         log.info(f"Caja abierta: sesión #{sid} inicial ${initial_cash:.0f}")
         return sid
 
-    def close_session(self, session_id, actual_cash):
-        self.run("UPDATE cash_sessions SET closed_at=?,actual_cash=?,status='closed' WHERE id=?",
-                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), float(actual_cash), session_id))
-        log.info(f"Caja cerrada: sesión #{session_id}, real ${actual_cash:.0f}")
+    def close_session(self, session_id, actual_cash, expected_cash=0, difference=0, notes=""):
+        self.run("UPDATE cash_sessions SET closed_at=?,actual_cash=?,expected_cash=?,difference=?,notes=?,status='closed' WHERE id=?",
+                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), float(actual_cash), float(expected_cash), float(difference), notes, session_id))
+        log.info(f"Caja cerrada: sesión #{session_id}, real ${actual_cash:.0f}, dif ${difference:.0f}, notas: {notes}")
 
     # ── Facturación Electrónica ───────────────────────────────
     def next_invoice_number(self):
@@ -778,7 +797,8 @@ class DB:
             " WHERE s.date BETWEEN ? AND ? GROUP BY cat ORDER BY rev DESC", (d1,d2))
 
     def export_sales_excel(self, filepath, d1, d2):
-        if not HAS_PD: raise ImportError("pip install pandas openpyxl")
+        if not HAS_PD(): raise ImportError("pip install pandas openpyxl")
+        import pandas as pd
         sales = self.get_sales(d1, d2)
         rows = []
         for s in sales:
@@ -861,7 +881,7 @@ class SetupWizard(ctk.CTk):
         self.db = db
         self.completed = False
         self._step = 0
-        self.title("GestiónPro — Configuración Inicial")
+        self.title("GestPro — Configuración Inicial")
         w, h = _sc(560), _sc(520)
         self.geometry(f"{w}x{h}")
         self.resizable(False, False)
@@ -929,7 +949,7 @@ class SetupWizard(ctk.CTk):
         f = ctk.CTkFrame(self._body, fg_color="transparent")
         self._frames.append(f)
         W_label(f, "🏪", size=48).pack(pady=(_sc(30), _sc(8)))
-        W_label(f, "¡Bienvenido a GestiónPro!", size=22, bold=True, color=ACC).pack()
+        W_label(f, "¡Bienvenido a GestPro!", size=22, bold=True, color=ACC).pack()
         W_label(f, "Sistema de gestión para tu negocio", size=12, color=DIM).pack(pady=(_sc(4), _sc(20)))
         msg = ("Vamos a configurar tu negocio en unos pocos pasos.\n"
                "Solo tomará un minuto y podrás cambiar\n"
@@ -1081,7 +1101,7 @@ class SetupWizard(ctk.CTk):
         self._summary_card.pack(fill="x", pady=_sc(14))
         # Se llenará dinámicamente
         self._summary_labels: list[ctk.CTkLabel] = []
-        self._nav_bar(f, back=True, next_text="🚀  Iniciar GestiónPro", cmd_next=self._finish)
+        self._nav_bar(f, back=True, next_text="🚀  Iniciar GestPro", cmd_next=self._finish)
 
     def _update_summary(self):
         for w in self._summary_card.winfo_children():
@@ -1130,7 +1150,7 @@ class LoginWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.result = None
-        self.title(f"GestiónPro — {_DB.cfg('business_name')}")
+        self.title(f"GestPro — {_DB.cfg('business_name')}")
         w, h = _sc(460), _sc(540)
         self.geometry(f"{w}x{h}"); self.resizable(False, False)
         self.configure(fg_color=BG)
@@ -1171,7 +1191,8 @@ class LoginWindow(ctk.CTk):
         W_label(card, "Contraseña", size=10, color=DIM).pack(anchor="w", padx=_sc(36))
         self.ep = W_entry(card, "••••••••", w=320, pw=True); self.ep.pack(padx=_sc(36), pady=(_sc(2), _sc(6)))
         self.lerr = W_label(card, "", color=ERR, size=10); self.lerr.pack()
-        W_btn(card, "  Ingresar  →", self._login, w=320, h=42).pack(padx=_sc(36), pady=(_sc(8), _sc(30)))
+        W_btn(card, "  Ingresar  →", self._login, w=320, h=42).pack(padx=_sc(36), pady=(_sc(8), _sc(15)))
+        ctk.CTkLabel(card, text="Desarrollado por C H E Q R A", font=("Segoe UI", 9), text_color="#555555").pack(side="bottom", pady=_sc(8))
         self.eu.bind("<Return>", lambda _: self.ep.focus())
         self.ep.bind("<Return>", lambda _: self._login())
 
@@ -1190,7 +1211,7 @@ class MainWindow(ctk.CTk):
     def __init__(self, user: dict):
         super().__init__()
         self.user = user
-        self.title(f"GestiónPro — {_DB.cfg('business_name')}")
+        self.title(f"GestPro — {_DB.cfg('business_name')}")
         self.geometry(f"{_sc(1220)}x{_sc(740)}"); self.minsize(_sc(900), _sc(580))
         self.configure(fg_color=BG)
         style_tree(); self._build(); self._nav(DashboardPanel)
@@ -1199,7 +1220,25 @@ class MainWindow(ctk.CTk):
         sb = ctk.CTkFrame(self, fg_color=SIDEBAR, width=_sc(215), corner_radius=0)
         sb.pack(side="left", fill="y"); sb.pack_propagate(False)
         ctk.CTkFrame(sb, fg_color=ACC, height=_sc(3), corner_radius=0).pack(fill="x")
-        W_label(sb, "🏪", size=30).pack(pady=(_sc(18), 0))
+        logo_path = _DB.cfg("logo_path")
+        logo_shown = False
+        if logo_path and os.path.isfile(logo_path):
+            try:
+                from PIL import Image
+                pil_img = Image.open(logo_path).convert("RGBA")
+                max_w, max_h = _sc(120), _sc(80)
+                orig_w, orig_h = pil_img.size
+                ratio = min(max_w / orig_w, max_h / orig_h)
+                new_w = max(1, int(orig_w * ratio))
+                new_h = max(1, int(orig_h * ratio))
+                pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+                ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(new_w, new_h))
+                ctk.CTkLabel(sb, image=ctk_img, text="", fg_color="transparent").pack(pady=(_sc(18), _sc(4)))
+                logo_shown = True
+            except Exception:
+                pass
+        if not logo_shown:
+            W_label(sb, "🏪", size=30).pack(pady=(_sc(18), 0))
         W_label(sb, _DB.cfg("business_name"), size=12, bold=True, color=ACC, wraplength=_sc(190)).pack()
         W_label(sb, f"👤  {self.user['username']}  ·  {self.user['role']}", size=9, color=DIM).pack(pady=(_sc(2), _sc(10)))
         W_sep(sb)
@@ -1220,32 +1259,35 @@ class MainWindow(ctk.CTk):
                 ("⚙  Configuración", ConfigPanel),
             ]
         for text, PanelCls in items:
-            b = ctk.CTkButton(sb, text=text, anchor="w", height=_sc(42),
+            b = ctk.CTkButton(sb, text=text, anchor="w", height=_sc(36),
                 fg_color="transparent", hover_color="#2a2a2a",
                 font=("Segoe UI", _sc(11)), corner_radius=_sc(8),
                 command=lambda pc=PanelCls: self._nav(pc))
-            b.pack(fill="x", padx=_sc(8), pady=_sc(2))
+            b.pack(fill="x", padx=_sc(8), pady=_sc(1))
             self._nav_btns[PanelCls] = b
-        W_sep(sb)
-        W_btn(sb, "🚪  Cerrar sesión", self.destroy, color="#2a2a2a", w=195).pack(pady=_sc(10), padx=_sc(10))
-        # ── Indicador de licencia al fondo de la sidebar ──
-        lic_frame = ctk.CTkFrame(sb, fg_color="transparent")
-        lic_frame.pack(side="bottom", fill="x", padx=_sc(10), pady=(_sc(4), _sc(10)))
+            
+        footer_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        footer_frame.pack(side="bottom", fill="x", pady=(_sc(2), _sc(10)))
+        
+        lbl_sig = W_label(footer_frame, "Desarrollado por C H E Q R A", size=8, color=DIM)
+        lbl_sig.pack(side="bottom", pady=(_sc(2), 0))
+        
+        lic_frame = ctk.CTkFrame(footer_frame, fg_color="transparent")
+        lic_frame.pack(side="bottom", fill="x", padx=_sc(10), pady=(_sc(4), _sc(4)))
         if _LIC_INFO:
             if _LIC_INFO["permanente"]:
-                lic_icon = "🟢"
-                lic_text = "Licencia permanente"
-                lic_color = OK
+                lic_icon = "🟢"; lic_text = "Licencia permanente"; lic_color = OK
             else:
                 dias = _LIC_INFO["dias_restantes"]
-                if dias > 90:
-                    lic_icon = "🟢"; lic_color = OK
-                elif dias > 30:
-                    lic_icon = "🟡"; lic_color = WARN
-                else:
-                    lic_icon = "🔴"; lic_color = ERR
+                if dias > 90: lic_icon = "🟢"; lic_color = OK
+                elif dias > 30: lic_icon = "🟡"; lic_color = WARN
+                else: lic_icon = "🔴"; lic_color = ERR
                 lic_text = f"{dias} días de licencia"
             W_label(lic_frame, f"{lic_icon}  {lic_text}", size=9, color=lic_color).pack()
+
+        W_sep(footer_frame)
+        W_btn(footer_frame, "🔄  Cambiar usuario", self._cambiar_usuario, color="#1f538d", w=195, h=32).pack(pady=(_sc(6), _sc(4)), padx=_sc(10))
+        W_btn(footer_frame, "❌  Salir", self._cerrar_app, color="#2a2a2a", w=195, h=32).pack(pady=(0, _sc(6)), padx=_sc(10))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side="left", fill="both", expand=True)
 
@@ -1256,6 +1298,13 @@ class MainWindow(ctk.CTk):
         for cls, btn in self._nav_btns.items():
             btn.configure(fg_color=ACC if cls==PanelCls else "transparent")
 
+    def _cambiar_usuario(self):
+        self.logout_requested = True
+        self.destroy()
+        
+    def _cerrar_app(self):
+        self.logout_requested = False
+        self.destroy()
 
 # ═══════════════════════════════════════════════════════════════
 # PANEL BASE
@@ -1278,7 +1327,10 @@ class DashboardPanel(BasePanel):
         today = date.today(); d1 = today.isoformat(); d30 = (today-timedelta(days=30)).isoformat()
         hdr = ctk.CTkFrame(self, fg_color="transparent"); hdr.pack(fill="x", pady=(0,12))
         W_label(hdr, "📊 Dashboard", size=18, bold=True).pack(side="left")
-        W_label(hdr, today.strftime("   %A %d de %B %Y"), size=11, color=DIM).pack(side="left", pady=6)
+        dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        meses = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        fecha_str = f"   {dias[today.weekday()]} {today.day:02d} de {meses[today.month]} {today.year}"
+        W_label(hdr, fecha_str, size=11, color=DIM).pack(side="left", pady=6)
 
         s  = self.db.summary(d1, d1); pr = self.db.profit_summary(d1, d1)
         ls = self.db.low_stock();     iv = self.db.inventory_value()
@@ -1424,7 +1476,7 @@ class InventarioPanel(BasePanel):
             ("Precio de Compra",       "cost",      float, "0"),
             ("Proveedor",              "supplier",  str,   ""),
             ("Stock Inicial",          "stock",     int,   "0"),
-            ("Stock Mínimo",           "min_stock", int,   "5"),
+            ("Stock Mínimo",           "min_stock", int,   self.db.cfg("low_stock_limit") or "5"),
             ("Unidad (kg, lt, caja…)", "unit",      str,   "unidad"),
         ]
         entries = {}
@@ -1483,7 +1535,7 @@ class InventarioPanel(BasePanel):
         W_btn(dlg, "✅ Aplicar", go, w=250, h=38).pack(pady=14)
 
     def _import(self):
-        if not HAS_PD: messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
+        if not HAS_PD(): messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
         path = filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xls")])
         if not path: return
         try:
@@ -1492,7 +1544,7 @@ class InventarioPanel(BasePanel):
         except Exception as exc: messagebox.showerror("Error",str(exc))
 
     def _export(self):
-        if not HAS_PD: messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
+        if not HAS_PD(): messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
         path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel","*.xlsx")],
                initialfile=f"inventario_{date.today()}.xlsx")
         if not path: return
@@ -2079,9 +2131,10 @@ class VentaPanel(BasePanel):
     def _print_thermal(self, sid, sub, disc, total, payment, notes, cambio,
                        sym, bname, btype, phone, addr, dian_cufe=None, dian_qr=None):
         """Imprime ticket profesional en impresora térmica POS 80mm."""
-        if not HAS_ESCPOS:
+        if not HAS_ESCPOS():
             log.warning("python-escpos no instalado — pip install python-escpos")
             return
+        from escpos.printer import Win32Raw
         printer_name = self.db.cfg("printer_name").strip()
         if not printer_name:
             log.warning("Impresora térmica habilitada pero sin nombre configurado")
@@ -2183,7 +2236,7 @@ class CierreCajaPanel(BasePanel):
         self.tabs = ctk.CTkTabview(self, fg_color=CARD, corner_radius=10)
         self.tabs.pack(fill="both", expand=True)
         self.tabs.add("📊 Turno Activo")
-        self.tabs.add("📋 Historial")
+        self.tabs.add("📝 Historial")
         self._build_historial()
         self._load_turno()
 
@@ -2295,10 +2348,18 @@ class CierreCajaPanel(BasePanel):
             f"──────────────────────────────\n"
             f"¿Confirmar cierre del turno?"
         )
+        justificacion = ""
+        if not cuadro:
+            dialog = ctk.CTkInputDialog(text="Se detectó un descuadre.\nPor favor, ingresa una justificación obligatoria para poder cerrar el turno:", title="Justificación de Descuadre")
+            justificacion = dialog.get_input()
+            if not justificacion or not justificacion.strip():
+                messagebox.showerror("Error", "No puedes cerrar la caja con descuadre sin proporcionar una justificación.")
+                return
+
         if not messagebox.askyesno("Confirmar Cierre de Caja", confirm_msg):
             return
 
-        self.db.close_session(sess_id, actual)
+        self.db.close_session(sess_id, actual, expected_cash=expected, difference=diff, notes=justificacion.strip())
 
         # Mensaje de resultado después del cierre
         if cuadro:
@@ -2336,7 +2397,7 @@ class CierreCajaPanel(BasePanel):
         self._build_historial()
 
     def _build_historial(self):
-        tab = self.tabs.tab("📋 Historial")
+        tab = self.tabs.tab("📝 Historial")
         for w in tab.winfo_children(): w.destroy()
         sessions = self.db.all(
             "SELECT cs.*, u.username FROM cash_sessions cs"
@@ -2346,13 +2407,27 @@ class CierreCajaPanel(BasePanel):
             W_label(tab,"Sin cierres registrados aún", color=DIM, size=12).pack(expand=True); return
         frm = W_card(tab); frm.pack(fill="both", expand=True)
         tree = make_tree(frm,
-            ("opened_at","closed_at","initial","actual","user"),
-            ("Apertura","Cierre","Efectivo Inicial","Efectivo Final","Usuario"),
-            (160,160,130,130,120))
+            ("opened_at","closed_at","initial","actual","expected","diff","user"),
+            ("Apertura","Cierre","Inicial","Final","Esperado","Estado / Dif.","Usuario"),
+            (130,130,90,90,100,140,110))
+            
+        tree.tag_configure("cuadre", foreground="#4caf50")
+        tree.tag_configure("descuadre", foreground="#ff5252")
+        
         for s in sessions:
+            diff_val = s.get("difference", 0) or 0
+            if abs(diff_val) < 1:
+                diff_text = "✅ Cuadre"
+                row_tag = "cuadre"
+            else:
+                diff_text = f"⚠️ Descuadre {fmt(diff_val)}"
+                row_tag = "descuadre"
+                
             tree.insert("","end", values=(
                 s["opened_at"], s["closed_at"] or "—",
-                fmt(s["initial_cash"]), fmt(s["actual_cash"] or 0), s["username"] or "—"))
+                fmt(s["initial_cash"]), fmt(s["actual_cash"] or 0),
+                fmt(s.get("expected_cash", 0) or 0), diff_text,
+                s["username"] or "—"), tags=(row_tag,))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2535,11 +2610,11 @@ class InformesPanel(BasePanel):
             self.ptree.delete(*self.ptree.get_children())
             for p in self.db.top_products(d1, d2, 30):
                 self.ptree.insert("","end", values=(p["pname"],int(p["qty"]),fmt(p["rev"])))
-            if HAS_MPL:
+            if HAS_MPL():
                 self._draw_charts(d1, d2)
             else:
                 for w in self.f_chart.winfo_children(): w.destroy()
-                W_label(self.f_chart, "Instala matplotlib: pip install matplotlib",
+                W_label(self.f_chart, "Gráficos no disponibles.\nAsegúrate de instalar 'matplotlib' o incluirlo en la compilación.",
                         color=DIM, size=12).pack(expand=True)
         except Exception as exc:
             log.error(f"Error cargando informes: {exc}", exc_info=True)
@@ -2548,6 +2623,11 @@ class InformesPanel(BasePanel):
 
     def _draw_charts(self, d1, d2):
         try:
+            import matplotlib
+            matplotlib.use("TkAgg")
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            
             # Limpiar canvas anterior y cerrar figura para liberar memoria
             for w in self.f_chart.winfo_children(): w.destroy()
             if self._fig is not None:
@@ -2631,7 +2711,7 @@ class InformesPanel(BasePanel):
         W_btn(bot, "🗑️ Anular Venta", anular, color=ERR, w=130).pack(side="right")
 
     def _export_excel(self):
-        if not HAS_PD: messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
+        if not HAS_PD(): messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
         d1=self.e_d1.get().strip(); d2=self.e_d2.get().strip()
         path = filedialog.asksaveasfilename(defaultextension=".xlsx",filetypes=[("Excel","*.xlsx")],
                initialfile=f"ventas_{d1}_a_{d2}.xlsx")
@@ -2925,7 +3005,7 @@ class ConfigPanel(BasePanel):
                 messagebox.showwarning("Impresora", "Selecciona una impresora válida"); return
             try:
                 import win32print, win32api
-                bname = self.db.cfg("business_name") or "GestiónPro"
+                bname = self.db.cfg("business_name") or "GestPro"
                 ticket = (
                     f"{'='*40}\n"
                     f"   {bname}\n"
@@ -3041,7 +3121,7 @@ class ConfigPanel(BasePanel):
 # ═══════════════════════════════════════════════════════════════
 # BACKUP AUTOMÁTICO
 # ═══════════════════════════════════════════════════════════════
-def _backup_db(db_path="gestionpro.db"):
+def _backup_db(db_path="GestPro.db"):
     """Crea un backup .zip del .db en backups/ y rota los últimos 7."""
     try:
         # Ruta del .db relativa al ejecutable/script
@@ -3055,15 +3135,15 @@ def _backup_db(db_path="gestionpro.db"):
         # Crear carpeta backups/
         bk_dir = os.path.join(base_dir, "backups")
         os.makedirs(bk_dir, exist_ok=True)
-        # Nombre: gestionpro_20260609_1225.zip
+        # Nombre: GestPro_20260609_1225.zip
         ts = datetime.now().strftime("%Y%m%d_%H%M")
-        zip_name = f"gestionpro_{ts}.zip"
+        zip_name = f"GestPro_{ts}.zip"
         zip_path = os.path.join(bk_dir, zip_name)
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(db_full, os.path.basename(db_full))
         log.info(f"Backup creado: {zip_path}")
         # Rotación: conservar solo los últimos 7
-        backups = sorted(glob.glob(os.path.join(bk_dir, "gestionpro_*.zip")))
+        backups = sorted(glob.glob(os.path.join(bk_dir, "GestPro_*.zip")))
         while len(backups) > 7:
             old = backups.pop(0)
             os.remove(old)
@@ -3077,7 +3157,7 @@ def _backup_db(db_path="gestionpro.db"):
 # ═══════════════════════════════════════════════════════════════
 def main():
     global _DB
-    log.info("=== GestiónPro v2.0 iniciando ===")
+    log.info("=== GestPro v2.0 iniciando ===")
     # ── Inicializar BD y escala primero ──
     _DB = DB()
     _init_scale()
@@ -3094,14 +3174,19 @@ def main():
             _DB.close()
             log.info("Wizard cancelado — saliendo")
             return
-    login = LoginWindow()
-    login.mainloop()
-    if login.result:
+    while True:
+        login = LoginWindow()
+        login.mainloop()
+        if not login.result:
+            break
         app = MainWindow(login.result)
         app.mainloop()
+        if not getattr(app, 'logout_requested', False):
+            break
+            
     _DB.close()
     _backup_db()    # backup automático al cerrar
-    log.info("=== GestiónPro cerrado ===")
+    log.info("=== GestPro cerrado ===")
 
 if __name__ == "__main__":
     main()

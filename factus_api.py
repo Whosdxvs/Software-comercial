@@ -1,4 +1,4 @@
-"""
+﻿"""
 factus_api.py — Cliente para la API REST de Factus
 Proveedor Tecnológico de Facturación Electrónica en Colombia (DIAN).
 
@@ -12,7 +12,7 @@ import time
 import logging
 import requests
 
-log = logging.getLogger("GestiónPro.Factus")
+log = logging.getLogger("GestPro.Factus")
 
 # ── URLs de la API ────────────────────────────────────────────
 SANDBOX_URL    = "https://api-sandbox.factus.com.co"
@@ -215,7 +215,7 @@ class FactusClient:
                 "due_date":            due_date,
             }],
             "cash_rounding_amount": "0.00",
-            "observation":          f"Venta #{sale_id} — GestiónPro",
+            "observation":          f"Venta #{sale_id} — GestPro",
             "customer":             customer_payload,
             "items":                factus_items,
         }
@@ -268,3 +268,4 @@ class FactusClient:
 class FactusError(Exception):
     """Excepción personalizada para errores de la API de Factus."""
     pass
+

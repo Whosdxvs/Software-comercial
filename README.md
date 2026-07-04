@@ -1,4 +1,4 @@
-# GestionPro v2.0
+﻿# GestPro v2.0
 
 ## FLUJO DE DESARROLLO
 
@@ -56,7 +56,7 @@ python generar_licencia.py
 Aparecera el menu:
 ```
 ========================================================
-    GENERADOR DE LICENCIAS -- GestionPro v2.0
+    GENERADOR DE LICENCIAS -- GestPro v2.0
 ========================================================
   1. Licencia de 30 dias
   2. Licencia de 90 dias
@@ -82,7 +82,7 @@ MmFjM2ExOTA=
 
   Copia esta llave y entregasela al cliente.
   El cliente la pega en la ventana de activacion
-  al abrir GestionPro por primera vez.
+  al abrir GestPro por primera vez.
 ```
 
 ### Tipos de licencia
@@ -110,5 +110,6 @@ MmFjM2ExOTA=
 |---|---|
 | `Software.py` | Codigo fuente principal |
 | `generar_licencia.py` | Script privado del desarrollador (NO en repo) |
-| `gestionpro.db` | Base de datos SQLite del cliente (NO en repo) |
+| `GestPro.db` | Base de datos SQLite del cliente (NO en repo) |
 | `.venv/` | Entorno virtual Python (NO en repo) |
+
