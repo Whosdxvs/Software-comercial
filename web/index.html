@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#09090b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GestPro">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <title>GestPro Móvil — Punto de Venta & Analíticas</title>
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Chart.js para analíticas interactivas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- html5-qrcode para escanear código de barras con la cámara -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="dark-theme">
+
+  <!-- ── VISTA DE LOGIN (Si no hay sesión activa) ── -->
+  <div id="view-login" class="login-container">
+    <div class="login-card glass-panel">
+      <div class="login-logo-container">
+        <img src="/static/icon.png" alt="GestPro" class="login-logo-img" onerror="this.style.display='none'; document.getElementById('login-fallback-icon').style.display='block';">
+        <div id="login-fallback-icon" class="login-fallback-icon" style="display: none;">🏪</div>
+      </div>
+      <h1 class="login-title" id="login-biz-name">GestPro Móvil</h1>
+      <p class="login-subtitle">Sistema Comercial & Analíticas</p>
+
+      <form id="form-login" class="login-form">
+        <div class="form-group">
+          <label for="login-username">Usuario</label>
+          <div class="input-icon-wrapper">
+            <span class="input-icon">👤</span>
+            <input type="text" id="login-username" class="form-input" placeholder="admin" required autocomplete="username">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="login-password">Contraseña</label>
+          <div class="input-icon-wrapper">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="login-password" class="form-input" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+        </div>
+
+        <div id="login-error" class="login-error-msg" style="display: none;"></div>
+
+        <button type="submit" id="btn-do-login" class="btn btn-primary btn-block btn-lg">
+          <span>Ingresar al Sistema</span>
+          <span class="btn-arrow">→</span>
+        </button>
+      </form>
+
+      <div class="login-footer">
+        <span>Conectado a la Base de Datos Local GestPro</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CONTENEDOR PRINCIPAL DE LA APP ── -->
+  <div id="app-container" class="app-layout" style="display: none;">
+
+    <!-- Barra Superior / Header -->
+    <header class="app-header glass-header">
+      <div class="header-left">
+        <div class="brand-badge" id="header-business-name">GestPro</div>
+        <div id="header-cash-badge" class="status-pill status-closed" onclick="app.navTo('caja')">
+          <span class="status-dot"></span>
+          <span id="header-cash-text">Caja Cerrada</span>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <button id="btn-header-qr" class="icon-btn" title="Información de Red & QR" onclick="app.showNetworkModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path><rect x="7" y="7" width="10" height="10" rx="1"></rect></svg>
+        </button>
+        <div class="user-pill">
+          <span class="user-icon">👤</span>
+          <span id="header-username">admin</span>
+          <button id="btn-logout" class="icon-btn-sm" title="Cerrar Sesión" onclick="app.logout()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Contenido Principal Dinámico -->
+    <main class="app-main" id="main-content">
+
+      <!-- ══════════════════════════════════════════════════════════
+           1. VISTA: ANALÍTICAS & DASHBOARD
+      ══════════════════════════════════════════════════════════ -->
+      <section id="view-dashboard" class="app-view active">
+        <div class="view-header">
+          <div>
+            <h2 class="view-title">Analíticas en Vivo</h2>
+            <p class="view-subtitle" id="dash-date-label">Rendimiento y Métricas del Negocio</p>
+          </div>
+          <!-- Selector rápido de fecha -->
+          <div class="date-chips-scroll">
+            <button class="chip active" data-range="today" onclick="app.setDashboardRange('today', this)">Hoy</button>
+            <button class="chip" data-range="yesterday" onclick="app.setDashboardRange('yesterday', this)">Ayer</button>
+            <button class="chip" data-range="week" onclick="app.setDashboardRange('week', this)">7 Días</button>
+            <button class="chip" data-range="month" onclick="app.setDashboardRange('month', this)">Este Mes</button>
+          </div>
+        </div>
+
+        <!-- Tarjetas de Métricas (KPIs) -->
+        <div class="kpi-grid">
+          <div class="kpi-card glass-panel kpi-revenue">
+            <div class="kpi-header">
+              <span class="kpi-title">Ventas Totales</span>
+              <span class="kpi-icon">💰</span>
+            </div>
+            <div class="kpi-value" id="kpi-revenue">$ 0</div>
+            <div class="kpi-footer">
+              <span id="kpi-sales-count">0 transacciones</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel kpi-profit">
+            <div class="kpi-header">
+              <span class="kpi-title">Ganancia Estimada</span>
+              <span class="kpi-icon">📈</span>
+            </div>
+            <div class="kpi-value text-success" id="kpi-profit">$ 0</div>
+            <div class="kpi-footer">
+              <span id="kpi-margin-percent">Margen: 0%</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel kpi-expenses">
+            <div class="kpi-header">
+              <span class="kpi-title">Gastos del Periodo</span>
+              <span class="kpi-icon">💸</span>
+            </div>
+            <div class="kpi-value text-danger" id="kpi-expenses">$ 0</div>
+            <div class="kpi-footer">
+              <span id="kpi-operating-profit">Operativo: $ 0</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel kpi-ticket">
+            <div class="kpi-header">
+              <span class="kpi-title">Ticket Promedio</span>
+              <span class="kpi-icon">🎯</span>
+            </div>
+            <div class="kpi-value" id="kpi-ticket">$ 0</div>
+            <div class="kpi-footer">
+              <span class="text-warning" id="kpi-low-stock-alert">⚠️ 0 bajo stock</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gráficos de Analíticas -->
+        <div class="charts-container">
+          <div class="chart-card glass-panel">
+            <div class="chart-card-header">
+              <h3 class="chart-title">Tendencia de Ventas Diarias</h3>
+            </div>
+            <div class="chart-body">
+              <canvas id="chart-daily-sales"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-row-dual">
+            <div class="chart-card glass-panel">
+              <div class="chart-card-header">
+                <h3 class="chart-title">Medios de Pago</h3>
+              </div>
+              <div class="chart-body chart-body-donut">
+                <canvas id="chart-payment-methods"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card glass-panel">
+              <div class="chart-card-header">
+                <h3 class="chart-title">Ventas por Categoría</h3>
+              </div>
+              <div class="chart-body">
+                <canvas id="chart-categories"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Productos Vendidos -->
+        <div class="glass-panel ranking-card">
+          <h3 class="chart-title mb-12">🏆 Top Productos Más Vendidos</h3>
+          <div id="dash-top-products-list" class="top-products-list">
+            <div class="empty-state-sm">No hay ventas registradas en este periodo</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════
+           2. VISTA: PUNTO DE VENTA (POS / REGISTRAR VENTAS)
+      ══════════════════════════════════════════════════════════ -->
+      <section id="view-pos" class="app-view">
+        <div class="pos-top-bar">
+          <div class="search-input-wrapper">
+            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="pos-search-input" class="form-input search-input" placeholder="Buscar por producto, SKU o código..." oninput="app.filterPosProducts()">
+            <button class="clear-search-btn" id="btn-clear-pos-search" onclick="app.clearPosSearch()" style="display: none;">✕</button>
+          </div>
+          <button id="btn-camera-scan" class="btn btn-secondary icon-btn-lg" title="Escanear Código de Barras con Cámara" onclick="app.openBarcodeScanner()">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          </button>
+        </div>
+
+        <!-- Filtro por Categorías (Scroll Horizontal) -->
+        <div class="category-chips-bar" id="pos-category-chips">
+          <button class="cat-chip active" onclick="app.selectPosCategory('Todas', this)">Todas</button>
+        </div>
+
+        <!-- Cuadrícula de Productos para Tocar -->
+        <div class="product-grid" id="pos-products-grid">
+          <div class="empty-state">Cargando catálogo...</div>
+        </div>
+
+        <!-- Barra Flotante de Carrito (Aparece cuando hay items en el carrito) -->
+        <div id="floating-cart-bar" class="floating-cart glass-panel" style="display: none;" onclick="app.openCartSheet()">
+          <div class="cart-bar-left">
+            <span class="cart-badge-count" id="cart-bar-badge">0</span>
+            <div class="cart-bar-info">
+              <span class="cart-bar-label">Total a Cobrar</span>
+              <span class="cart-bar-total" id="cart-bar-total">$ 0</span>
+            </div>
+          </div>
+          <button class="btn btn-success btn-sm pulse-animation">
+            <span>Ver Carrito</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════
+           3. VISTA: INVENTARIO & PRODUCTOS
+      ══════════════════════════════════════════════════════════ -->
+      <section id="view-inventario" class="app-view">
+        <div class="view-header flex-between">
+          <div>
+            <h2 class="view-title">Inventario</h2>
+            <p class="view-subtitle" id="inv-total-count">Control de Stock y Precios</p>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="app.openNewProductModal()">
+            <span>+ Nuevo</span>
+          </button>
+        </div>
+
+        <div class="inv-filter-bar">
+          <div class="search-input-wrapper flex-1">
+            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="inv-search-input" class="form-input search-input" placeholder="Buscar en inventario..." oninput="app.filterInvProducts()">
+          </div>
+          <button id="btn-filter-low-stock" class="btn btn-secondary btn-sm" onclick="app.toggleLowStockFilter(this)">
+            ⚠️ Solo Stock Bajo
+          </button>
+        </div>
+
+        <div class="inv-products-list" id="inv-products-list">
+          <div class="empty-state">Cargando inventario...</div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════
+           4. VISTA: CAJA & TURNOS
+      ══════════════════════════════════════════════════════════ -->
+      <section id="view-caja" class="app-view">
+        <div class="view-header">
+          <h2 class="view-title">Control de Caja</h2>
+          <p class="view-subtitle">Apertura, Movimientos y Arqueo</p>
+        </div>
+
+        <!-- Tarjeta de Estado de Caja -->
+        <div id="caja-status-card" class="glass-panel caja-hero-card">
+          <div class="caja-header-row">
+            <div>
+              <span class="text-dim text-sm">Estado del Turno</span>
+              <h3 id="caja-status-title" class="caja-status-text">Verificando...</h3>
+            </div>
+            <div id="caja-status-indicator" class="status-indicator-badge">--</div>
+          </div>
+
+          <div id="caja-open-content" style="display: none;">
+            <div class="caja-stat-highlight">
+              <span class="caja-highlight-label">Efectivo Esperado en Caja</span>
+              <span class="caja-highlight-val" id="caja-expected-amount">$ 0</span>
+            </div>
+
+            <div class="caja-summary-grid">
+              <div class="caja-stat-item">
+                <span class="text-dim">Monto Base Inicial:</span>
+                <strong id="caja-initial-amount">$ 0</strong>
+              </div>
+              <div class="caja-stat-item">
+                <span class="text-dim">Ventas en Efectivo:</span>
+                <strong class="text-success" id="caja-cash-sales">$ 0</strong>
+              </div>
+              <div class="caja-stat-item">
+                <span class="text-dim">Ventas Otros Medios:</span>
+                <strong id="caja-other-sales">$ 0</strong>
+              </div>
+              <div class="caja-stat-item">
+                <span class="text-dim">Ingresos Manuales:</span>
+                <strong class="text-success" id="caja-incomes">$ 0</strong>
+              </div>
+              <div class="caja-stat-item">
+                <span class="text-dim">Salidas / Gastos:</span>
+                <strong class="text-danger" id="caja-outcomes">$ 0</strong>
+              </div>
+              <div class="caja-stat-item">
+                <span class="text-dim">Ventas Realizadas:</span>
+                <strong id="caja-sales-count">0</strong>
+              </div>
+            </div>
+
+            <!-- Botones de Acción de Caja -->
+            <div class="caja-actions-row">
+              <button class="btn btn-secondary flex-1" onclick="app.openCashMovementModal('income')">
+                <span>📥 Ingreso</span>
+              </button>
+              <button class="btn btn-secondary flex-1" onclick="app.openCashMovementModal('outcome')">
+                <span>📤 Retiro</span>
+              </button>
+              <button class="btn btn-danger flex-1" onclick="app.openCloseCashModal()">
+                <span>🔒 Cerrar Caja</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="caja-closed-content" style="display: none;" class="caja-closed-wrapper">
+            <p class="mb-16 text-dim">No hay ninguna sesión de caja abierta en este momento. Abre caja para poder registrar cobros y cuadrar turno.</p>
+            <button class="btn btn-success btn-lg btn-block" onclick="app.openOpenCashModal()">
+              <span>🔓 Abrir Caja con Base</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Movimientos Recientes de Caja -->
+        <div class="glass-panel mt-16" id="caja-movements-panel">
+          <h3 class="chart-title mb-12">Movimientos del Turno</h3>
+          <div id="caja-transactions-list" class="transactions-list">
+            <div class="empty-state-sm">No hay movimientos registrados</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════
+           5. VISTA: MÁS (GASTOS, CLIENTES, HISTORIAL, RED)
+      ══════════════════════════════════════════════════════════ -->
+      <section id="view-mas" class="app-view">
+        <div class="view-header">
+          <h2 class="view-title">Menú & Módulos</h2>
+          <p class="view-subtitle">Operaciones adicionales y reportes</p>
+        </div>
+
+        <div class="menu-cards-grid">
+          <div class="menu-card glass-panel" onclick="app.showSubView('gastos')">
+            <div class="menu-card-icon">💸</div>
+            <div class="menu-card-content">
+              <h4>Gastos del Negocio</h4>
+              <p>Registrar y consultar gastos diarios</p>
+            </div>
+            <span class="menu-card-arrow">→</span>
+          </div>
+
+          <div class="menu-card glass-panel" onclick="app.showSubView('clientes')">
+            <div class="menu-card-icon">👥</div>
+            <div class="menu-card-content">
+              <h4>Clientes & Créditos</h4>
+              <p>Directorio, cuentas por cobrar y abonos</p>
+            </div>
+            <span class="menu-card-arrow">→</span>
+          </div>
+
+          <div class="menu-card glass-panel" onclick="app.showSubView('ventas')">
+            <div class="menu-card-icon">📑</div>
+            <div class="menu-card-content">
+              <h4>Historial de Ventas</h4>
+              <p>Detalle de ventas, comprobantes y anulación</p>
+            </div>
+            <span class="menu-card-arrow">→</span>
+          </div>
+
+          <div class="menu-card glass-panel" onclick="app.showNetworkModal()">
+            <div class="menu-card-icon">📱</div>
+            <div class="menu-card-content">
+              <h4>Conectar otro Celular / QR</h4>
+              <p>Ver IP local y código QR de acceso</p>
+            </div>
+            <span class="menu-card-arrow">→</span>
+          </div>
+
+          <div class="menu-card glass-panel danger-card" onclick="app.logout()">
+            <div class="menu-card-icon">🚪</div>
+            <div class="menu-card-content">
+              <h4>Cerrar Sesión</h4>
+              <p>Salir del usuario actual</p>
+            </div>
+            <span class="menu-card-arrow">→</span>
+          </div>
+        </div>
+
+        <!-- SUB-VISTA: GASTOS -->
+        <div id="subview-gastos" class="subview-container" style="display: none;">
+          <div class="subview-header">
+            <button class="btn-back" onclick="app.hideSubView('gastos')">← Volver</button>
+            <h3>Gastos</h3>
+            <button class="btn btn-primary btn-sm" onclick="app.openNewExpenseModal()">+ Registrar Gasto</button>
+          </div>
+          <div id="gastos-list" class="items-list"></div>
+        </div>
+
+        <!-- SUB-VISTA: CLIENTES -->
+        <div id="subview-clientes" class="subview-container" style="display: none;">
+          <div class="subview-header">
+            <button class="btn-back" onclick="app.hideSubView('clientes')">← Volver</button>
+            <h3>Clientes y Deudas</h3>
+            <button class="btn btn-primary btn-sm" onclick="app.openNewClientModal()">+ Nuevo Cliente</button>
+          </div>
+          <div class="search-input-wrapper mb-12">
+            <input type="text" id="clientes-search" class="form-input" placeholder="Buscar cliente por nombre o teléfono..." oninput="app.filterClients()">
+          </div>
+          <div id="clientes-list" class="items-list"></div>
+        </div>
+
+        <!-- SUB-VISTA: HISTORIAL DE VENTAS -->
+        <div id="subview-ventas" class="subview-container" style="display: none;">
+          <div class="subview-header">
+            <button class="btn-back" onclick="app.hideSubView('ventas')">← Volver</button>
+            <h3>Historial de Ventas</h3>
+            <div></div>
+          </div>
+          <div class="date-filter-row mb-12">
+            <input type="date" id="sales-filter-date" class="form-input" onchange="app.loadSalesHistory()">
+          </div>
+          <div id="sales-history-list" class="items-list"></div>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- ── BARRA DE NAVEGACIÓN INFERIOR (Mobile App Style) ── -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="dashboard" onclick="app.navTo('dashboard')">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Métricas</span>
+      </button>
+
+      <button class="nav-item" data-view="pos" onclick="app.navTo('pos')">
+        <span class="nav-icon pos-icon-wrapper">
+          🛒
+          <span class="nav-cart-badge" id="nav-cart-count" style="display: none;">0</span>
+        </span>
+        <span class="nav-label">Vender</span>
+      </button>
+
+      <button class="nav-item" data-view="inventario" onclick="app.navTo('inventario')">
+        <span class="nav-icon">📦</span>
+        <span class="nav-label">Stock</span>
+      </button>
+
+      <button class="nav-item" data-view="caja" onclick="app.navTo('caja')">
+        <span class="nav-icon">💵</span>
+        <span class="nav-label">Caja</span>
+      </button>
+
+      <button class="nav-item" data-view="mas" onclick="app.navTo('mas')">
+        <span class="nav-icon">⚡</span>
+        <span class="nav-label">Más</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: CARRITO DE COMPRAS / FINALIZAR VENTA (Bottom Sheet)
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-cart" class="bottom-sheet-overlay" style="display: none;">
+    <div class="bottom-sheet glass-panel">
+      <div class="sheet-drag-handle" onclick="app.closeCartSheet()"></div>
+      <div class="sheet-header">
+        <h3 class="sheet-title">🛒 Carrito de Venta</h3>
+        <button class="btn-text-danger text-sm" onclick="app.clearCart()">Vaciar Carrito</button>
+      </div>
+
+      <!-- Lista de Ítems en Carrito -->
+      <div class="cart-items-scroll" id="cart-items-container">
+        <div class="empty-state">El carrito está vacío</div>
+      </div>
+
+      <!-- Detalles del Cobro -->
+      <div class="cart-summary-section">
+        <div class="cart-option-row">
+          <label>Cliente:</label>
+          <div class="flex-row gap-8 flex-1">
+            <select id="cart-client-select" class="form-input flex-1">
+              <option value="">Mostrador (Cliente Casual)</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="app.openNewClientModal(true)">+ Nuevo</button>
+          </div>
+        </div>
+
+        <div class="cart-option-row">
+          <label>Descuento ($):</label>
+          <input type="number" id="cart-discount-input" class="form-input w-120" placeholder="0" value="0" min="0" oninput="app.updateCartTotals()">
+        </div>
+
+        <div class="cart-totals-box">
+          <div class="flex-between text-dim text-sm">
+            <span>Subtotal:</span>
+            <span id="cart-subtotal">$ 0</span>
+          </div>
+          <div class="flex-between text-dim text-sm">
+            <span>Descuento:</span>
+            <span id="cart-discount-val">$ 0</span>
+          </div>
+          <div class="flex-between cart-grand-total">
+            <span>TOTAL:</span>
+            <span id="cart-total-val" class="text-success">$ 0</span>
+          </div>
+        </div>
+
+        <!-- Métodos de Pago Tabs -->
+        <label class="text-sm text-dim mb-6 block">Método de Pago:</label>
+        <div class="payment-tabs-grid">
+          <button class="pay-tab active" data-method="efectivo" onclick="app.setPaymentMethod('efectivo', this)">💵 Efectivo</button>
+          <button class="pay-tab" data-method="transferencia" onclick="app.setPaymentMethod('transferencia', this)">📱 Transferencia</button>
+          <button class="pay-tab" data-method="tarjeta" onclick="app.setPaymentMethod('tarjeta', this)">💳 Tarjeta</button>
+          <button class="pay-tab" data-method="crédito" onclick="app.setPaymentMethod('crédito', this)">⏳ Crédito</button>
+        </div>
+
+        <!-- Calculadora de Cambio para Efectivo -->
+        <div id="cash-change-calculator" class="cash-calc-box">
+          <div class="flex-between items-center mb-8">
+            <label class="text-sm">Paga con:</label>
+            <input type="number" id="cash-received-input" class="form-input w-140 font-bold" placeholder="Monto recibido" oninput="app.calcChange()">
+          </div>
+          <div class="quick-cash-chips" id="quick-cash-chips">
+            <!-- Rellenado dinámicamente según el total -->
+          </div>
+          <div class="change-display-row">
+            <span>Cambio a devolver:</span>
+            <strong id="change-due-val" class="text-success">$ 0</strong>
+          </div>
+        </div>
+
+        <!-- Botón de Confirmación -->
+        <button id="btn-confirm-sale" class="btn btn-success btn-lg btn-block mt-12" onclick="app.confirmSale()">
+          <span>✅ REGISTRAR VENTA</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: COMPROBANTE / RECIBO POST-VENTA
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-receipt" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel text-center">
+      <div class="receipt-success-badge">✅</div>
+      <h3 class="modal-title">¡Venta Exitosa!</h3>
+      <p class="receipt-sale-number" id="receipt-sale-id">Venta #000</p>
+
+      <div class="receipt-summary-box" id="receipt-summary-box">
+        <!-- Rellenado por JS -->
+      </div>
+
+      <div class="receipt-actions-grid">
+        <button class="btn btn-whatsapp btn-block" id="btn-whatsapp-receipt" onclick="app.sendReceiptWhatsApp()">
+          <span>📲 Enviar por WhatsApp</span>
+        </button>
+        <button class="btn btn-secondary btn-block" onclick="app.printReceipt()">
+          <span>🖨️ Imprimir / Guardar Ticket</span>
+        </button>
+        <button class="btn btn-primary btn-block" onclick="app.closeReceiptModal()">
+          <span>➕ Nueva Venta</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: ESCÁNER DE CÓDIGO DE BARRAS POR CÁMARA
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-scanner" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel scanner-modal-card">
+      <div class="flex-between items-center mb-12">
+        <h3 class="modal-title">📷 Escanear Producto</h3>
+        <button class="icon-btn-sm" onclick="app.closeBarcodeScanner()">✕</button>
+      </div>
+      <p class="text-sm text-dim mb-8">Apunta la cámara del celular al código de barras:</p>
+      <div id="interactive-barcode-reader" class="scanner-viewport"></div>
+      <div id="scanner-result-msg" class="scanner-msg">Buscando código...</div>
+      <button class="btn btn-secondary btn-block mt-12" onclick="app.closeBarcodeScanner()">Cerrar Cámara</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: NUEVO / EDITAR PRODUCTO
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-product" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-16">
+        <h3 class="modal-title" id="modal-product-title">Nuevo Producto</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-product')">✕</button>
+      </div>
+      <form id="form-product" onsubmit="app.saveProduct(event)">
+        <input type="hidden" id="prod-form-id">
+        <div class="form-group">
+          <label>Nombre del Producto *</label>
+          <input type="text" id="prod-form-name" class="form-input" required placeholder="Ej: Café Especial 500g">
+        </div>
+        <div class="form-row-dual">
+          <div class="form-group">
+            <label>SKU / Código</label>
+            <input type="number" id="prod-form-sku" class="form-input" placeholder="Automático si vacío">
+          </div>
+          <div class="form-group">
+            <label>Código de Barras</label>
+            <input type="text" id="prod-form-barcode" class="form-input" placeholder="Opcional">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Categoría</label>
+          <select id="prod-form-category" class="form-input"></select>
+        </div>
+        <div class="form-row-dual">
+          <div class="form-group">
+            <label>Precio de Venta ($) *</label>
+            <input type="number" id="prod-form-price" class="form-input" required step="any" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label>Costo de Compra ($)</label>
+            <input type="number" id="prod-form-cost" class="form-input" step="any" placeholder="0">
+          </div>
+        </div>
+        <div class="form-row-dual">
+          <div class="form-group">
+            <label>Stock Actual</label>
+            <input type="number" id="prod-form-stock" class="form-input" value="0">
+          </div>
+          <div class="form-group">
+            <label>Stock Mínimo</label>
+            <input type="number" id="prod-form-min-stock" class="form-input" value="5">
+          </div>
+        </div>
+        <div class="modal-buttons-row mt-16">
+          <button type="button" class="btn btn-secondary flex-1" onclick="app.closeModal('modal-product')">Cancelar</button>
+          <button type="submit" class="btn btn-primary flex-1">Guardar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: AJUSTE RÁPIDO DE STOCK (+ / -)
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-adjust-stock" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-16">
+        <h3 class="modal-title">Ajustar Stock</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-adjust-stock')">✕</button>
+      </div>
+      <p id="adjust-stock-prod-name" class="font-bold mb-8"></p>
+      <p class="text-sm text-dim mb-16">Stock actual: <strong id="adjust-stock-current" class="text-white">0</strong></p>
+      
+      <div class="adjust-stepper-box">
+        <button class="btn-stepper" onclick="app.changeAdjustDelta(-1)">-1</button>
+        <button class="btn-stepper" onclick="app.changeAdjustDelta(-5)">-5</button>
+        <input type="number" id="adjust-delta-input" class="form-input text-center font-bold text-lg w-100" value="1">
+        <button class="btn-stepper" onclick="app.changeAdjustDelta(1)">+1</button>
+        <button class="btn-stepper" onclick="app.changeAdjustDelta(5)">+5</button>
+      </div>
+
+      <div class="modal-buttons-row mt-20">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-adjust-stock')">Cancelar</button>
+        <button class="btn btn-success flex-1" onclick="app.saveStockAdjustment()">Guardar Ajuste</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: ABRIR CAJA
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-open-cash" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <h3 class="modal-title mb-8">🔓 Apertura de Turno de Caja</h3>
+      <p class="text-sm text-dim mb-16">Ingresa el dinero en efectivo con el que inicias en caja (base):</p>
+      <div class="form-group">
+        <label>Monto Base Inicial ($)</label>
+        <input type="number" id="open-cash-amount" class="form-input text-lg font-bold" placeholder="Ej: 50000" value="50000" required>
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-open-cash')">Cancelar</button>
+        <button class="btn btn-success flex-1" onclick="app.submitOpenCash()">Abrir Turno</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: CERRAR CAJA / ARQUEO
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-close-cash" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <h3 class="modal-title mb-8">🔒 Cierre de Turno de Caja</h3>
+      <div class="caja-expected-summary mb-16">
+        <span class="text-sm text-dim">Efectivo que el sistema espera:</span>
+        <strong id="close-cash-expected-display" class="text-lg block text-white">$ 0</strong>
+      </div>
+      <div class="form-group">
+        <label>Efectivo Físico Contado ($) *</label>
+        <input type="number" id="close-cash-actual" class="form-input text-lg font-bold" placeholder="0" oninput="app.calcCashDifference()" required>
+      </div>
+      <div class="diff-box mb-12">
+        <span>Diferencia (Descuadre):</span>
+        <strong id="close-cash-diff-display">$ 0</strong>
+      </div>
+      <div class="form-group">
+        <label>Notas de Cierre (Opcional)</label>
+        <input type="text" id="close-cash-notes" class="form-input" placeholder="Observaciones o motivos de diferencia">
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-close-cash')">Cancelar</button>
+        <button class="btn btn-danger flex-1" onclick="app.submitCloseCash()">Confirmar Cierre</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: MOVIMIENTO DE CAJA (INGRESO / RETIRO)
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-cash-movement" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <h3 class="modal-title mb-16" id="cash-movement-title">Movimiento de Caja</h3>
+      <input type="hidden" id="cash-movement-type">
+      <div class="form-group">
+        <label>Monto ($) *</label>
+        <input type="number" id="cash-movement-amount" class="form-input text-lg font-bold" required placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>Motivo / Descripción *</label>
+        <input type="text" id="cash-movement-desc" class="form-input" required placeholder="Ej: Cambio de sencillo, pago urgente">
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-cash-movement')">Cancelar</button>
+        <button class="btn btn-primary flex-1" onclick="app.submitCashMovement()">Guardar Movimiento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: NUEVO GASTO
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-expense" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-16">
+        <h3 class="modal-title">Registrar Gasto</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-expense')">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Categoría del Gasto *</label>
+        <select id="expense-category" class="form-input">
+          <option value="Servicios">Servicios (Agua, Luz, Internet)</option>
+          <option value="Nómina">Nómina / Pagos a Personal</option>
+          <option value="Mercancía">Compra de Mercancía</option>
+          <option value="Arriendo">Arriendo</option>
+          <option value="Transporte">Transporte / Fletes</option>
+          <option value="Alimentación">Alimentación / Refrigerio</option>
+          <option value="Varios" selected>Varios / Otros</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Valor ($) *</label>
+        <input type="number" id="expense-amount" class="form-input text-lg font-bold" required placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>Descripción / Detalle</label>
+        <input type="text" id="expense-desc" class="form-input" placeholder="Detalle del gasto">
+      </div>
+      <div class="form-group checkbox-group">
+        <label class="flex-row items-center gap-8 cursor-pointer">
+          <input type="checkbox" id="expense-affect-cash" checked>
+          <span>Descontar dinero de la caja activa</span>
+        </label>
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-expense')">Cancelar</button>
+        <button class="btn btn-primary flex-1" onclick="app.submitExpense()">Guardar Gasto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: NUEVO CLIENTE
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-client" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-16">
+        <h3 class="modal-title">Nuevo Cliente</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-client')">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Nombre Completo *</label>
+        <input type="text" id="client-name" class="form-input" required placeholder="Nombre o Razón Social">
+      </div>
+      <div class="form-row-dual">
+        <div class="form-group">
+          <label>Teléfono / WhatsApp</label>
+          <input type="tel" id="client-phone" class="form-input" placeholder="Ej: 3001234567">
+        </div>
+        <div class="form-group">
+          <label>Documento / C.C. / NIT</label>
+          <input type="text" id="client-doc" class="form-input" placeholder="Documento">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Dirección</label>
+        <input type="text" id="client-address" class="form-input" placeholder="Dirección">
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-client')">Cancelar</button>
+        <button class="btn btn-primary flex-1" onclick="app.submitNewClient()">Guardar Cliente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: REGISTRAR ABONO DE CLIENTE
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-client-payment" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-16">
+        <h3 class="modal-title">Abonar a Deuda</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-client-payment')">✕</button>
+      </div>
+      <p id="pay-client-name" class="font-bold mb-4"></p>
+      <p class="text-sm text-dim mb-16">Deuda actual: <strong id="pay-client-debt" class="text-danger">$ 0</strong></p>
+      <div class="form-group">
+        <label>Monto a Abonar ($) *</label>
+        <input type="number" id="pay-amount" class="form-input text-lg font-bold" required placeholder="0">
+      </div>
+      <div class="form-group">
+        <label>Notas del Abono</label>
+        <input type="text" id="pay-notes" class="form-input" placeholder="Ej: Pago parcial, transferencia">
+      </div>
+      <div class="modal-buttons-row mt-16">
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-client-payment')">Cancelar</button>
+        <button class="btn btn-success flex-1" onclick="app.submitClientPayment()">Registrar Abono</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: DETALLE DE VENTA
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-sale-detail" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel">
+      <div class="flex-between items-center mb-12">
+        <h3 class="modal-title" id="sale-detail-title">Detalle de Venta</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-sale-detail')">✕</button>
+      </div>
+      <div id="sale-detail-body" class="mb-16"></div>
+      <div class="modal-buttons-row">
+        <button id="btn-cancel-sale" class="btn btn-danger flex-1" onclick="app.cancelSaleConfirm()">Anular Venta</button>
+        <button class="btn btn-secondary flex-1" onclick="app.closeModal('modal-sale-detail')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODAL: INFORMACIÓN DE RED & QR
+  ══════════════════════════════════════════════════════════ -->
+  <div id="modal-network" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-panel text-center">
+      <div class="flex-between items-center mb-12">
+        <h3 class="modal-title">📱 Conectar otro Celular</h3>
+        <button class="icon-btn-sm" onclick="app.closeModal('modal-network')">✕</button>
+      </div>
+      <p class="text-sm text-dim mb-12">Abre la cámara de otro celular conectado al mismo Wi-Fi y escanea este código:</p>
+      <div class="qr-code-wrapper">
+        <img id="qr-image" src="" alt="Código QR de Conexión" class="qr-img">
+      </div>
+      <div class="url-copy-box mt-12 mb-16">
+        <code id="network-url-text" class="network-url">http://...</code>
+        <button class="btn btn-secondary btn-sm" onclick="app.copyUrl()">Copiar</button>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="app.closeModal('modal-network')">Entendido</button>
+    </div>
+  </div>
+
+  <!-- Toast de Notificaciones Flotantes -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

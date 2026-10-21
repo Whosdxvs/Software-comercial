@@ -1,4 +1,4 @@
-﻿# GestPro v2.0
+# GestPro v2.0
 
 ## FLUJO DE DESARROLLO
 
@@ -104,12 +104,41 @@ MmFjM2ExOTA=
 
 ---
 
+## ACCESO MÓVIL Y WEB (Celular y Tablet)
+
+GestPro cuenta con un servidor web y aplicación móvil integrada que permite acceder desde cualquier smartphone en el navegador web (Safari, Chrome, etc.):
+
+- **Analíticas en vivo**: Métricas de ventas, ganancias netas, margen operativo, gráficos de tendencia y top productos.
+- **Punto de Venta Móvil (POS)**: Catálogo táctil, carrito interactivo, cálculo de cambio, cobros en efectivo/tarjeta/transferencia/crédito, y comprobante digital con botón de envío directo a **WhatsApp**.
+- **Lector de Código de Barras**: Escanea productos directamente con la cámara del celular.
+- **Control de Caja**: Consulta de saldo esperado en tiempo real, arqueo, ingresos, retiros y apertura/cierre de turnos.
+- **Inventario & Clientes**: Ajuste de stock rápido, alertas de stock mínimo, gestión de deudas y abonos.
+
+### Cómo iniciar el servidor móvil:
+
+1. **Opción 1 (Doble Clic)**: Ejecutar el archivo `Iniciar_Servidor_Movil.bat`.
+2. **Opción 2 (Desde la App de Escritorio)**: Abrir GestPro en PC e ir a la pestaña **📱 Acceso Móvil**, donde verás el estado y el código QR listo para escanear.
+3. **Opción 3 (Comando)**:
+   ```bash
+   python web_server.py
+   ```
+
+Apunta la cámara de tu celular al código QR mostrado o abre la dirección IP que aparece (ej: `http://192.168.1.5:8000`) estando conectado al mismo Wi-Fi.
+
+> **Tip:** En tu celular puedes pulsar en las opciones del navegador **"Agregar a pantalla de inicio"** para usar GestPro como una app móvil a pantalla completa.
+
+---
+
 ## ARCHIVOS IMPORTANTES
 
 | Archivo | Descripcion |
 |---|---|
-| `Software.py` | Codigo fuente principal |
+| `Software.py` | Codigo fuente principal de escritorio |
+| `web_server.py` | Servidor backend FastAPI para acceso móvil y web |
+| `web/` | Aplicacion web SPA (HTML, CSS moderno, JS, PWA) |
+| `Iniciar_Servidor_Movil.bat` | Acceso directo para iniciar el servidor movil |
 | `generar_licencia.py` | Script privado del desarrollador (NO en repo) |
 | `GestPro.db` | Base de datos SQLite del cliente (NO en repo) |
 | `.venv/` | Entorno virtual Python (NO en repo) |
+
 

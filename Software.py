@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 GestPro v2.0 Comercial
 Sistema de gestión para cualquier tipo de negocio.
@@ -154,6 +154,12 @@ class LicenseManager:
         return True
 
 
+# ── Paleta (Estilo Serio: Blanco, Negro, Acentos) ───────────────
+BG     = "#0a0a0a"; SIDEBAR = "#121212"; CARD = "#181818"; CARD2 = "#242424"
+ACC    = "#2a2a2a"; ACCH   = "#3a3a3a"; TEXT = "#ffffff"
+DIM    = "#888888"; OK     = "#198754"; ERR  = "#dc3545"
+WARN   = "#f39c12"; PURPLE = "#8e44ad"
+
 class ActivationWindow(ctk.CTk):
     """Ventana de activación: el usuario pega su llave de licencia."""
     def __init__(self, db):
@@ -164,33 +170,33 @@ class ActivationWindow(ctk.CTk):
         self.title("GestPro — Activación de Software")
         self.geometry("480x340")
         self.resizable(False, False)
-        self.configure(fg_color="#181818")
+        self.configure(fg_color=BG)
         self._build()
 
     def _build(self):
-        card = ctk.CTkFrame(self, fg_color="#252525", corner_radius=12)
+        card = ctk.CTkFrame(self, fg_color=CARD, corner_radius=12)
         card.pack(fill="both", expand=True, padx=24, pady=24)
 
         ctk.CTkLabel(card, text="🔒", font=("Segoe UI", 44)).pack(pady=(18, 0))
         ctk.CTkLabel(card, text="Activación Requerida",
-                     font=("Segoe UI", 18, "bold"), text_color="#f0f0f0").pack(pady=(4, 0))
+                     font=("Segoe UI", 18, "bold"), text_color=TEXT).pack(pady=(4, 0))
 
         status = self._lm.check_current_status()
         reason = status.get("reason", "Introduce tu llave de licencia.")
         ctk.CTkLabel(card, text=reason, font=("Segoe UI", 10),
-                     text_color="#e74c3c", wraplength=380).pack(pady=(6, 14))
+                     text_color=ERR, wraplength=380).pack(pady=(6, 14))
 
         ctk.CTkLabel(card, text="Llave de Licencia:", font=("Segoe UI", 10),
-                     text_color="#888888").pack(anchor="w", padx=30)
+                     text_color=DIM).pack(anchor="w", padx=30)
         self._e_key = ctk.CTkEntry(card, width=400, placeholder_text="Pega aquí tu código de licencia...",
                                    font=("Segoe UI", 10))
         self._e_key.pack(padx=30, pady=(4, 18))
 
         ctk.CTkButton(card, text="Activar Software", command=self._activate,
-                      width=220, height=42, fg_color="#4682DC", hover_color="#5a96f0",
+                      width=220, height=42, fg_color=OK, hover_color="#146c43",
                       font=("Segoe UI", 12, "bold")).pack()
         ctk.CTkLabel(card, text="Contacta a tu proveedor para obtener una licencia.",
-                     font=("Segoe UI", 9), text_color="#555555").pack(side="bottom", pady=14)
+                     font=("Segoe UI", 9), text_color=DIM).pack(side="bottom", pady=14)
 
     def _activate(self):
         from tkinter import messagebox
@@ -239,11 +245,7 @@ def check_license_and_run(db) -> bool:
         _set_info()
     return win.success
 
-# ── Paleta ────────────────────────────────────────────────────
-BG     = "#181818"; SIDEBAR = "#1e1e1e"; CARD = "#252525"; CARD2 = "#2e2e2e"
-ACC    = "#4682DC"; ACCH   = "#5a96f0"; TEXT = "#f0f0f0"
-DIM    = "#888888"; OK     = "#3dba6e"; ERR  = "#e74c3c"
-WARN   = "#f39c12"; PURPLE = "#8e44ad"
+# La paleta se movió arriba para uso global.
 
 # ── Escala Responsiva ─────────────────────────────────────────
 # Referencia base: 1366×768 (portátil estándar = SCALE 1.0).
@@ -284,6 +286,8 @@ class DB:
     def __init__(self, path="GestPro.db"):
         self.con = sqlite3.connect(path, check_same_thread=False)
         self.con.row_factory = sqlite3.Row
+        self.con.execute("PRAGMA journal_mode = WAL")
+        self.con.execute("PRAGMA busy_timeout = 5000")
         self.con.execute("PRAGMA foreign_keys = ON")
         self._schema()
         self._seed()
@@ -384,6 +388,27 @@ class DB:
             pdf_url TEXT NOT NULL DEFAULT '',
             dian_status TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS pos_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            address TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT '',
+            active INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE IF NOT EXISTS pos_inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            location_id INTEGER NOT NULL REFERENCES pos_locations(id),
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            stock INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(location_id, product_id));
+        CREATE TABLE IF NOT EXISTS inventory_transfers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_location_id INTEGER NOT NULL REFERENCES pos_locations(id),
+            to_location_id INTEGER NOT NULL REFERENCES pos_locations(id),
+            product_id INTEGER NOT NULL REFERENCES products(id),
+            quantity INTEGER NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            timestamp TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '');
         """)
         self.con.commit()
         self._migrate()
@@ -405,6 +430,9 @@ class DB:
             ("invoices",       "cufe",          "TEXT NOT NULL DEFAULT ''"),
             ("invoices",       "pdf_url",       "TEXT NOT NULL DEFAULT ''"),
             ("invoices",       "dian_status",   "TEXT NOT NULL DEFAULT ''"),
+            ("sales",          "location_id",   "INTEGER REFERENCES pos_locations(id)"),
+            ("cash_sessions",  "location_id",   "INTEGER REFERENCES pos_locations(id)"),
+            ("expenses",       "location_id",   "INTEGER REFERENCES pos_locations(id)"),
         ]
         existing = {}
         for table, col, defn in migrations:
@@ -443,11 +471,31 @@ class DB:
         self.con.execute(
             "INSERT OR IGNORE INTO users(username,password,role) VALUES(?,?,?)",
             ("admin", self._hp("admin123"), "admin"))
-        # Solo sembrar categorías si la tabla está vacía (primer arranque)
-        if not self.all("SELECT 1 FROM categories LIMIT 1"):
-            for cat in ["General","Electrónica","Ropa","Alimentos","Hogar",
-                        "Deportes","Libros","Bebidas","Juguetes","Salud"]:
-                self.con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
+        # Solo sembrar categorías si no se ha hecho antes (primer arranque)
+        if self.cfg("categories_seeded") != "1":
+            if not self.all("SELECT 1 FROM categories LIMIT 1"):
+                for cat in ["General","Electrónica","Ropa","Alimentos","Hogar",
+                            "Deportes","Libros","Bebidas","Juguetes","Salud"]:
+                    self.con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
+            self.set_cfg("categories_seeded", "1")
+        # Crear punto de venta "Principal" si no existe
+        if not self.all("SELECT 1 FROM pos_locations LIMIT 1"):
+            self.run("INSERT INTO pos_locations(name, address, phone) VALUES(?,?,?)",
+                     ("Principal", "", ""))
+            loc = self.one("SELECT id FROM pos_locations WHERE name='Principal'")
+            if loc:
+                for p in self.all("SELECT id, stock FROM products WHERE active=1 AND stock > 0"):
+                    self.con.execute(
+                        "INSERT OR IGNORE INTO pos_inventory(location_id, product_id, stock) VALUES(?,?,?)",
+                        (loc["id"], p["id"], p["stock"]))
+        # Migrar datos antiguos a la sede Principal si existen
+        principal = self.one("SELECT id FROM pos_locations WHERE name='Principal' OR active=1 ORDER BY id LIMIT 1")
+        if principal:
+            pid = principal["id"]
+            self.con.execute("UPDATE sales SET location_id=? WHERE location_id IS NULL", (pid,))
+            self.con.execute("UPDATE cash_sessions SET location_id=? WHERE location_id IS NULL", (pid,))
+            self.con.execute("UPDATE expenses SET location_id=? WHERE location_id IS NULL", (pid,))
+            
         self.con.commit()
 
     def _hp(self, pw): return hashlib.sha256(pw.encode()).hexdigest()
@@ -465,6 +513,21 @@ class DB:
         if p: self.run("UPDATE users SET username=?,password=?,role=?,active=? WHERE id=?", (u,self._hp(p),r,a,id))
         else: self.run("UPDATE users SET username=?,role=?,active=? WHERE id=?", (u,r,a,id))
     def del_user(self, id): self.run("DELETE FROM users WHERE id=?", (id,))
+    
+    # ── Puntos de Venta (POS Locations) ──────────────────────
+    def get_locations(self, active_only=True):
+        q = "SELECT * FROM pos_locations" + (" WHERE active=1" if active_only else "") + " ORDER BY id"
+        return self.all(q)
+    def add_location(self, name, address, phone):
+        self.run("INSERT INTO pos_locations(name,address,phone) VALUES(?,?,?)", (name, address, phone))
+    def upd_location(self, id, name, address, phone, active):
+        self.run("UPDATE pos_locations SET name=?,address=?,phone=?,active=? WHERE id=?", (name, address, phone, active, id))
+    def del_location(self, id):
+        self.run("UPDATE pos_locations SET active=0 WHERE id=?", (id,))
+        
+    def get_pos_stock(self, loc_id, prod_id):
+        r = self.one("SELECT stock FROM pos_inventory WHERE location_id=? AND product_id=?", (loc_id, prod_id))
+        return r["stock"] if r else 0
 
     # ── Categorías ───────────────────────────────────────────
     def get_categories(self): return [r["name"] for r in self.all("SELECT name FROM categories ORDER BY name")]
@@ -509,6 +572,14 @@ class DB:
             "INSERT INTO products(name,sku,barcode,category,price,cost,supplier,stock,min_stock,unit)"
             " VALUES(?,?,?,?,?,?,?,?,?,?)",
             (name,int(sku),barcode,category,float(price),float(cost),supplier,int(stock),int(min_stock),unit))
+        # Add stock to active location if stock > 0
+        if int(stock) > 0:
+            prod_id = self.one("SELECT id FROM products WHERE sku=?", (int(sku),))["id"]
+            # Encontrar un location activo, si no, usar el primero
+            loc = self.one("SELECT id FROM pos_locations WHERE active=1 ORDER BY id LIMIT 1")
+            if not loc: loc = self.one("SELECT id FROM pos_locations ORDER BY id LIMIT 1")
+            if loc:
+                self.adj_pos_stock(loc["id"], prod_id, int(stock))
         log.info(f"Producto creado: {name} SKU:{sku}")
 
     def upd_product(self, id, name, sku, barcode, category, price, cost, supplier, stock, min_stock, unit):
@@ -518,9 +589,50 @@ class DB:
             (name,int(sku),barcode,category,float(price),float(cost),supplier,int(stock),int(min_stock),unit,id))
 
     def del_product(self, id): self.run("UPDATE products SET active=0 WHERE id=?", (id,))
-    def adj_stock(self, id, delta): self.run("UPDATE products SET stock=stock+? WHERE id=?", (delta,id))
-    def low_stock(self): return self.all("SELECT * FROM products WHERE active=1 AND stock<=min_stock ORDER BY stock")
-    def inventory_value(self):
+    
+    def adj_stock(self, id, delta):
+        # Este modifica el stock global
+        self.run("UPDATE products SET stock=stock+? WHERE id=?", (delta,id))
+        
+    def adj_pos_stock(self, loc_id, prod_id, delta):
+        # Modifica el stock por punto de venta
+        self.run("INSERT INTO pos_inventory(location_id, product_id, stock) VALUES(?,?,?) "
+                 "ON CONFLICT(location_id, product_id) DO UPDATE SET stock=stock+?", 
+                 (loc_id, prod_id, delta, delta))
+                 
+    def transfer_inventory(self, from_loc_id, to_loc_id, prod_id, quantity, user_id, notes=""):
+        # Asegurar cantidad positiva
+        qty = abs(int(quantity))
+        if qty <= 0: return False
+        # Reducir origen
+        self.adj_pos_stock(from_loc_id, prod_id, -qty)
+        # Aumentar destino
+        self.adj_pos_stock(to_loc_id, prod_id, qty)
+        # Registrar movimiento
+        self.run("INSERT INTO inventory_transfers(from_location_id,to_location_id,product_id,quantity,user_id,timestamp,notes) "
+                 "VALUES(?,?,?,?,?,?,?)",
+                 (from_loc_id, to_loc_id, prod_id, qty, user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), notes))
+        log.info(f"Transferencia: {qty} de P{prod_id} de L{from_loc_id} a L{to_loc_id}")
+        return True
+
+    def low_stock(self, loc_id=None):
+        if loc_id:
+            # Stock bajo por ubicación
+            return self.all(
+                "SELECT p.*, COALESCE(pi.stock, 0) as pos_stock "
+                "FROM products p LEFT JOIN pos_inventory pi ON p.id = pi.product_id AND pi.location_id=? "
+                "WHERE p.active=1 AND COALESCE(pi.stock, 0) <= p.min_stock ORDER BY COALESCE(pi.stock, 0)", (loc_id,)
+            )
+        else:
+            return self.all("SELECT * FROM products WHERE active=1 AND stock<=min_stock ORDER BY stock")
+            
+    def inventory_value(self, loc_id=None):
+        if loc_id:
+            return self.one(
+                "SELECT COALESCE(SUM(p.price*pi.stock),0) venta, COALESCE(SUM(p.cost*pi.stock),0) costo "
+                "FROM products p JOIN pos_inventory pi ON p.id = pi.product_id "
+                "WHERE p.active=1 AND pi.location_id=? AND pi.stock > 0", (loc_id,)
+            )
         return self.one("SELECT COALESCE(SUM(price*stock),0) venta, COALESCE(SUM(cost*stock),0) costo FROM products WHERE active=1")
 
     def clean_data(self):
@@ -632,12 +744,14 @@ class DB:
             self.add_cash_transaction(session_id, "income", amount, desc)
 
     # ── Caja / Sesiones ──────────────────────────────────────
-    def get_active_session(self, user_id):
+    def get_active_session(self, user_id, loc_id=None):
+        if loc_id:
+            return self.one("SELECT * FROM cash_sessions WHERE user_id=? AND location_id=? AND status='open'", (user_id, loc_id))
         return self.one("SELECT * FROM cash_sessions WHERE user_id=? AND status='open'", (user_id,))
 
-    def open_session(self, user_id, initial_cash):
-        sid = self.run("INSERT INTO cash_sessions(user_id,opened_at,initial_cash,status) VALUES(?,?,?,?)",
-                       (user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), float(initial_cash), "open"))
+    def open_session(self, user_id, initial_cash, loc_id=None):
+        sid = self.run("INSERT INTO cash_sessions(user_id,location_id,opened_at,initial_cash,status) VALUES(?,?,?,?,?)",
+                       (user_id, loc_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), float(initial_cash), "open"))
         log.info(f"Caja abierta: sesión #{sid} inicial ${initial_cash:.0f}")
         return sid
 
@@ -712,20 +826,22 @@ class DB:
         }
 
     # ── Ventas ───────────────────────────────────────────────
-    def create_sale(self, client_id, user_id, items, discount, payment, notes="", session_id=None):
+    def create_sale(self, client_id, user_id, items, discount, payment, notes="", session_id=None, loc_id=None):
         now = datetime.now()
         sub = sum(i["subtotal"] for i in items)
         total = sub - (discount or 0)
         sid = self.run(
-            "INSERT INTO sales(client_id,user_id,session_id,date,time,subtotal,discount,total,payment_method,notes)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (client_id, user_id, session_id, now.strftime("%Y-%m-%d"), now.strftime("%H:%M"),
+            "INSERT INTO sales(client_id,user_id,session_id,location_id,date,time,subtotal,discount,total,payment_method,notes)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (client_id, user_id, session_id, loc_id, now.strftime("%Y-%m-%d"), now.strftime("%H:%M"),
              sub, discount or 0, total, payment, notes))
         for i in items:
             self.run("INSERT INTO sale_items(sale_id,product_id,product_name,quantity,unit_price,subtotal)"
                      " VALUES(?,?,?,?,?,?)",
                      (sid, i["product_id"], i["product_name"], i["quantity"], i["unit_price"], i["subtotal"]))
             self.adj_stock(i["product_id"], -i["quantity"])
+            if loc_id:
+                self.adj_pos_stock(loc_id, i["product_id"], -i["quantity"])
         
         # ── Si es a crédito, aumentar deuda del cliente ──
         if payment == "crédito" and client_id:
@@ -735,71 +851,134 @@ class DB:
         return sid
 
     def delete_sale(self, sale_id):
+        sale = self.one("SELECT location_id FROM sales WHERE id=?", (sale_id,))
+        loc_id = sale["location_id"] if sale else None
+        
         for i in self.get_sale_items(sale_id):
-            if i["product_id"]: self.adj_stock(i["product_id"], i["quantity"])
+            if i["product_id"]: 
+                self.adj_stock(i["product_id"], i["quantity"])
+                if loc_id:
+                    self.adj_pos_stock(loc_id, i["product_id"], i["quantity"])
         self.run("DELETE FROM sales WHERE id=?", (sale_id,))
         log.info(f"Venta #{sale_id} anulada, stock restaurado")
 
-    def get_sales(self, d1, d2):
-        return self.all(
-            "SELECT s.*, COALESCE(c.name,'Mostrador') cn, u.username uname"
-            " FROM sales s LEFT JOIN clients c ON s.client_id=c.id"
-            " LEFT JOIN users u ON s.user_id=u.id"
-            " WHERE s.date BETWEEN ? AND ? ORDER BY s.date DESC, s.time DESC", (d1,d2))
+    def get_sales(self, d1, d2, loc_id=None):
+        q = ("SELECT s.*, COALESCE(c.name,'Mostrador') cn, u.username uname,"
+             " (SELECT COALESCE(SUM(si.subtotal - si.quantity*COALESCE(p.cost,0)), 0) FROM sale_items si LEFT JOIN products p ON si.product_id=p.id WHERE si.sale_id = s.id) - s.discount AS profit"
+             " FROM sales s LEFT JOIN clients c ON s.client_id=c.id"
+             " LEFT JOIN users u ON s.user_id=u.id"
+             " WHERE s.date BETWEEN ? AND ?")
+        p = [d1, d2]
+        if loc_id:
+            q += " AND s.location_id=?"
+            p.append(loc_id)
+        q += " ORDER BY s.date DESC, s.time DESC"
+        return self.all(q, p)
+        
     def get_sale_items(self, sid): return self.all("SELECT * FROM sale_items WHERE sale_id=?", (sid,))
 
-    def summary(self, d1, d2):
-        return self.one("SELECT COUNT(*) cnt, COALESCE(SUM(total),0) revenue,"
-                        " COALESCE(SUM(discount),0) disc FROM sales WHERE date BETWEEN ? AND ?", (d1,d2))
-    def profit_summary(self, d1, d2):
-        return self.one(
-            "SELECT COALESCE(SUM(si.subtotal - si.quantity*COALESCE(p.cost,0)),0) profit"
-            " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
-            " LEFT JOIN products p ON si.product_id=p.id"
-            " WHERE s.date BETWEEN ? AND ?", (d1,d2))
-    def expenses_summary(self, d1, d2):
-        return self.one("SELECT COALESCE(SUM(amount),0) total FROM expenses WHERE date BETWEEN ? AND ?", (d1,d2))
-    def top_products(self, d1, d2, n=10):
-        return self.all(
-            "SELECT si.product_name pname, SUM(si.quantity) qty, SUM(si.subtotal) rev"
-            " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
-            " WHERE s.date BETWEEN ? AND ? GROUP BY si.product_name ORDER BY qty DESC LIMIT ?", (d1,d2,n))
+    def summary(self, d1, d2, loc_id=None):
+        q = "SELECT COUNT(*) cnt, COALESCE(SUM(total),0) revenue, COALESCE(SUM(discount),0) disc FROM sales WHERE date BETWEEN ? AND ?"
+        p = [d1, d2]
+        if loc_id:
+            q += " AND location_id=?"
+            p.append(loc_id)
+        return self.one(q, p)
+        
+    def profit_summary(self, d1, d2, loc_id=None):
+        q_gross = ("SELECT COALESCE(SUM(si.subtotal - si.quantity*COALESCE(p.cost,0)),0) profit"
+                   " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
+                   " LEFT JOIN products p ON si.product_id=p.id"
+                   " WHERE s.date BETWEEN ? AND ?")
+        q_disc = "SELECT COALESCE(SUM(discount),0) disc FROM sales WHERE date BETWEEN ? AND ?"
+        p = [d1, d2]
+        if loc_id:
+            q_gross += " AND s.location_id=?"
+            q_disc += " AND location_id=?"
+            p.append(loc_id)
+            
+        gross = self.one(q_gross, p)["profit"]
+        disc = self.one(q_disc, p)["disc"]
+        return {"profit": gross - disc}
+        
+    def expenses_summary(self, d1, d2, loc_id=None):
+        q = "SELECT COALESCE(SUM(amount),0) total FROM expenses WHERE date BETWEEN ? AND ?"
+        p = [d1, d2]
+        if loc_id:
+            q += " AND location_id=?"
+            p.append(loc_id)
+        return self.one(q, p)
+        
+    def top_products(self, d1, d2, n=10, loc_id=None):
+        q = ("SELECT si.product_name pname, SUM(si.quantity) qty, SUM(si.subtotal) rev"
+             " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
+             " WHERE s.date BETWEEN ? AND ?")
+        p = [d1, d2]
+        if loc_id:
+            q += " AND s.location_id=?"
+            p.append(loc_id)
+        q += " GROUP BY si.product_name ORDER BY qty DESC LIMIT ?"
+        p.append(n)
+        return self.all(q, p)
 
     # ── Gastos ───────────────────────────────────────────────
-    def get_expenses(self, d1, d2):
-        return self.all(
-            "SELECT e.*, u.username uname FROM expenses e"
-            " JOIN users u ON e.user_id = u.id"
-            " WHERE e.date BETWEEN ? AND ? ORDER BY e.timestamp DESC", (d1, d2))
+    def get_expenses(self, d1, d2, loc_id=None):
+        q = ("SELECT e.*, u.username uname FROM expenses e"
+             " JOIN users u ON e.user_id = u.id"
+             " WHERE e.date BETWEEN ? AND ?")
+        p = [d1, d2]
+        if loc_id:
+            q += " AND e.location_id=?"
+            p.append(loc_id)
+        q += " ORDER BY e.timestamp DESC"
+        return self.all(q, p)
 
-    def add_expense(self, user_id, session_id, category, amount, description, affect_cash=True):
+    def add_expense(self, user_id, session_id, category, amount, description, affect_cash=True, loc_id=None):
         now = datetime.now()
         eid = self.run(
-            "INSERT INTO expenses(user_id,session_id,date,category,amount,description,timestamp) VALUES(?,?,?,?,?,?,?)",
-            (user_id, session_id if affect_cash else None, now.strftime("%Y-%m-%d"), category, amount, description, now.strftime("%Y-%m-%d %H:%M:%S")))
+            "INSERT INTO expenses(user_id,session_id,location_id,date,category,amount,description,timestamp) VALUES(?,?,?,?,?,?,?,?)",
+            (user_id, session_id if affect_cash else None, loc_id, now.strftime("%Y-%m-%d"), category, amount, description, now.strftime("%Y-%m-%d %H:%M:%S")))
         if affect_cash and session_id:
             desc = f"Gasto: {category}"
             if description: desc += f" ({description})"
             self.add_cash_transaction(session_id, "outcome", amount, desc)
         log.info(f"Gasto registrado: {category} ${amount:.0f}")
         return eid
-    def sales_by_day(self, d1, d2):
-        return self.all("SELECT date, COALESCE(SUM(total),0) rev, COUNT(*) cnt"
-                        " FROM sales WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date", (d1,d2))
-    def sales_by_payment(self, d1, d2):
-        return self.all("SELECT payment_method pm, COALESCE(SUM(total),0) total"
-                        " FROM sales WHERE date BETWEEN ? AND ? GROUP BY payment_method", (d1,d2))
-    def sales_by_category(self, d1, d2):
-        return self.all(
-            "SELECT COALESCE(p.category,'Sin categoría') cat, SUM(si.subtotal) rev"
-            " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
-            " LEFT JOIN products p ON si.product_id=p.id"
-            " WHERE s.date BETWEEN ? AND ? GROUP BY cat ORDER BY rev DESC", (d1,d2))
+        
+    def sales_by_day(self, d1, d2, loc_id=None):
+        q = "SELECT date, COALESCE(SUM(total),0) rev, COUNT(*) cnt FROM sales WHERE date BETWEEN ? AND ?"
+        p = [d1, d2]
+        if loc_id:
+            q += " AND location_id=?"
+            p.append(loc_id)
+        q += " GROUP BY date ORDER BY date"
+        return self.all(q, p)
+        
+    def sales_by_payment(self, d1, d2, loc_id=None):
+        q = "SELECT payment_method pm, COALESCE(SUM(total),0) total FROM sales WHERE date BETWEEN ? AND ?"
+        p = [d1, d2]
+        if loc_id:
+            q += " AND location_id=?"
+            p.append(loc_id)
+        q += " GROUP BY payment_method"
+        return self.all(q, p)
+        
+    def sales_by_category(self, d1, d2, loc_id=None):
+        q = ("SELECT COALESCE(p.category,'Sin categoría') cat, SUM(si.subtotal) rev"
+             " FROM sale_items si JOIN sales s ON si.sale_id=s.id"
+             " LEFT JOIN products p ON si.product_id=p.id"
+             " WHERE s.date BETWEEN ? AND ?")
+        p = [d1, d2]
+        if loc_id:
+            q += " AND s.location_id=?"
+            p.append(loc_id)
+        q += " GROUP BY cat ORDER BY rev DESC"
+        return self.all(q, p)
 
-    def export_sales_excel(self, filepath, d1, d2):
+    def export_sales_excel(self, filepath, d1, d2, loc_id=None):
         if not HAS_PD(): raise ImportError("pip install pandas openpyxl")
         import pandas as pd
-        sales = self.get_sales(d1, d2)
+        sales = self.get_sales(d1, d2, loc_id)
         rows = []
         for s in sales:
             for it in self.get_sale_items(s["id"]):
@@ -827,10 +1006,10 @@ def style_tree():
     s = ttk.Style(); s.theme_use("clam")
     s.configure("G.Treeview", background=CARD, foreground=TEXT, fieldbackground=CARD,
                 rowheight=_sc(28), font=("Segoe UI", _sc(10)), borderwidth=0)
-    s.configure("G.Treeview.Heading", background="#111", foreground=ACC,
+    s.configure("G.Treeview.Heading", background=CARD, foreground=ACC,
                 font=("Segoe UI", _sc(10), "bold"), relief="flat")
     s.map("G.Treeview", background=[("selected",ACC)], foreground=[("selected","white")])
-    s.configure("TScrollbar", background="#333", troughcolor="#222", arrowcolor="#888", borderwidth=0)
+    s.configure("TScrollbar", background=CARD2, troughcolor=CARD2, arrowcolor="#888", borderwidth=0)
 
 def W_entry(m, ph="", w=200, pw=False):
     return ctk.CTkEntry(m, width=_sc(w), placeholder_text=ph, show="*" if pw else "", font=("Segoe UI", _sc(11)))
@@ -841,7 +1020,7 @@ def W_btn(m, t, cmd, color=ACC, w=130, h=34):
                          fg_color=color, hover_color=ACCH, font=("Segoe UI", _sc(11), "bold"))
 def W_card(m, **kw): return ctk.CTkFrame(m, fg_color=CARD, corner_radius=_sc(10), **kw)
 def W_combo(m, vals, w=200): return ctk.CTkComboBox(m, values=vals, width=_sc(w), font=("Segoe UI", _sc(11)))
-def W_sep(m): ctk.CTkFrame(m, fg_color="#2e2e2e", height=1).pack(fill="x", padx=8, pady=3)
+def W_sep(m): ctk.CTkFrame(m, fg_color=CARD2, height=1).pack(fill="x", padx=8, pady=3)
 
 def make_tree(parent, cols, hdrs, widths, height=None):
     kw = {"height": height} if height else {}
@@ -940,7 +1119,7 @@ class SetupWizard(ctk.CTk):
         bar.pack(side="bottom", fill="x", pady=(_sc(10), 0))
         if back:
             W_btn(bar, "←  Atrás", lambda: self._show_step(self._step - 1),
-                  color="#333", w=120, h=38).pack(side="left")
+                  color=CARD2, w=120, h=38).pack(side="left")
         W_btn(bar, next_text, cmd_next or (lambda: self._show_step(self._step + 1)),
               w=180, h=38).pack(side="right")
 
@@ -1241,8 +1420,25 @@ class MainWindow(ctk.CTk):
             W_label(sb, "🏪", size=30).pack(pady=(_sc(18), 0))
         W_label(sb, _DB.cfg("business_name"), size=12, bold=True, color=ACC, wraplength=_sc(190)).pack()
         W_label(sb, f"👤  {self.user['username']}  ·  {self.user['role']}", size=9, color=DIM).pack(pady=(_sc(2), _sc(10)))
+        
+        # ── Selector de Punto de Venta ──
+        loc_frame = ctk.CTkFrame(sb, fg_color="transparent")
+        loc_frame.pack(fill="x", padx=_sc(8), pady=(_sc(2), _sc(8)))
+        W_label(loc_frame, "📍 Punto de Venta:", size=9, color=DIM).pack(anchor="w")
+        
+        self.locations = _DB.get_locations(active_only=True)
+        loc_names = [l["name"] for l in self.locations]
+        if not loc_names: loc_names = ["Principal"]
+        self.cb_loc = W_combo(loc_frame, loc_names, w=180)
+        self.cb_loc.pack(fill="x")
+        self.cb_loc.bind("<<ComboboxSelected>>", lambda _: self._on_loc_change())
+        self.cb_loc.configure(command=self._on_loc_change)
+        
         W_sep(sb)
         self._nav_btns: dict = {}
+        
+        # Track selected location globally
+        self.current_loc_id = self.locations[0]["id"] if self.locations else None
         items = [
             ("📊  Dashboard",       DashboardPanel),
             ("📦  Inventario",      InventarioPanel),
@@ -1258,9 +1454,12 @@ class MainWindow(ctk.CTk):
                 ("👤  Usuarios",      UsuariosPanel),
                 ("⚙  Configuración", ConfigPanel),
             ]
+        items += [
+            ("📱  Acceso Móvil",   MovilPanel),
+        ]
         for text, PanelCls in items:
             b = ctk.CTkButton(sb, text=text, anchor="w", height=_sc(36),
-                fg_color="transparent", hover_color="#2a2a2a",
+                fg_color="transparent", hover_color=CARD2,
                 font=("Segoe UI", _sc(11)), corner_radius=_sc(8),
                 command=lambda pc=PanelCls: self._nav(pc))
             b.pack(fill="x", padx=_sc(8), pady=_sc(1))
@@ -1286,17 +1485,28 @@ class MainWindow(ctk.CTk):
             W_label(lic_frame, f"{lic_icon}  {lic_text}", size=9, color=lic_color).pack()
 
         W_sep(footer_frame)
-        W_btn(footer_frame, "🔄  Cambiar usuario", self._cambiar_usuario, color="#1f538d", w=195, h=32).pack(pady=(_sc(6), _sc(4)), padx=_sc(10))
-        W_btn(footer_frame, "❌  Salir", self._cerrar_app, color="#2a2a2a", w=195, h=32).pack(pady=(0, _sc(6)), padx=_sc(10))
+        W_btn(footer_frame, "🔄  Cambiar usuario", self._cambiar_usuario, color=ACC, w=195, h=32).pack(pady=(_sc(6), _sc(4)), padx=_sc(10))
+        W_btn(footer_frame, "❌  Salir", self._cerrar_app, color=CARD2, w=195, h=32).pack(pady=(0, _sc(6)), padx=_sc(10))
         self.content = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self.content.pack(side="left", fill="both", expand=True)
 
     def _nav(self, PanelCls):
         for w in self.content.winfo_children(): w.destroy()
-        panel = PanelCls(self.content, _DB, self.user)
+        panel = PanelCls(self.content, _DB, self.user, getattr(self, 'current_loc_id', None))
         panel.pack(fill="both", expand=True, padx=20, pady=15)
         for cls, btn in self._nav_btns.items():
             btn.configure(fg_color=ACC if cls==PanelCls else "transparent")
+            
+    def _on_loc_change(self, *args):
+        sel_name = self.cb_loc.get()
+        loc = next((l for l in self.locations if l["name"] == sel_name), None)
+        if loc:
+            self.current_loc_id = loc["id"]
+            # Reload current panel
+            for cls, btn in self._nav_btns.items():
+                if btn.cget("fg_color") == ACC:
+                    self._nav(cls)
+                    break
 
     def _cambiar_usuario(self):
         self.logout_requested = True
@@ -1309,19 +1519,25 @@ class MainWindow(ctk.CTk):
 # ═══════════════════════════════════════════════════════════════
 # PANEL BASE
 # ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# PANEL BASE
+# ═══════════════════════════════════════════════════════════════
 class BasePanel(ctk.CTkFrame):
-    def __init__(self, master, db: DB, user: dict, title=""):
+    def __init__(self, master, db: DB, user: dict, loc_id: int=None, title=""):
         super().__init__(master, fg_color="transparent")
-        self.db = db; self.user = user
+        self.db = db; self.user = user; self.loc_id = loc_id
         if title: W_label(self, title, size=18, bold=True).pack(anchor="w", pady=(0,10))
 
 
 # ═══════════════════════════════════════════════════════════════
 # DASHBOARD
 # ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# DASHBOARD
+# ═══════════════════════════════════════════════════════════════
 class DashboardPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user); self._build()
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id); self._build()
 
     def _build(self):
         today = date.today(); d1 = today.isoformat(); d30 = (today-timedelta(days=30)).isoformat()
@@ -1332,9 +1548,9 @@ class DashboardPanel(BasePanel):
         fecha_str = f"   {dias[today.weekday()]} {today.day:02d} de {meses[today.month]} {today.year}"
         W_label(hdr, fecha_str, size=11, color=DIM).pack(side="left", pady=6)
 
-        s  = self.db.summary(d1, d1); pr = self.db.profit_summary(d1, d1)
-        ls = self.db.low_stock();     iv = self.db.inventory_value()
-        exp = self.db.expenses_summary(d1, d1)
+        s  = self.db.summary(d1, d1, self.loc_id); pr = self.db.profit_summary(d1, d1, self.loc_id)
+        ls = self.db.low_stock(self.loc_id);     iv = self.db.inventory_value(self.loc_id)
+        exp = self.db.expenses_summary(d1, d1, self.loc_id)
         net_profit = pr["profit"] - exp["total"]
 
         row = ctk.CTkFrame(self, fg_color="transparent"); row.pack(fill="x")
@@ -1351,7 +1567,7 @@ class DashboardPanel(BasePanel):
             W_label(c, lbl, size=9, color=DIM).pack(pady=(0,14))
 
         bot = ctk.CTkFrame(self, fg_color="transparent"); bot.pack(fill="both", expand=True, pady=(12,0))
-        top = self.db.top_products(d30, d1, 7)
+        top = self.db.top_products(d30, d1, 7, self.loc_id)
         lc = W_card(bot); lc.pack(side="left", fill="both", expand=True, padx=(0,8))
         W_label(lc, "🏆  Más vendidos — 30 días", bold=True, color=ACC, size=11).pack(pady=(14,4))
         W_sep(lc)
@@ -1369,7 +1585,8 @@ class DashboardPanel(BasePanel):
             for p in ls[:7]:
                 r = ctk.CTkFrame(rc, fg_color="transparent"); r.pack(fill="x", padx=16, pady=3)
                 W_label(r, p["name"], size=10).pack(side="left")
-                W_label(r, f"{p['stock']} {p['unit']}", size=10, color=ERR).pack(side="right")
+                stock_val = p.get("pos_stock", p["stock"]) if self.loc_id else p["stock"]
+                W_label(r, f"{stock_val} {p['unit']}", size=10, color=ERR).pack(side="right")
         else:
             W_label(rc, "✅  Inventario OK", color=OK, size=10).pack(pady=12)
         W_sep(rc)
@@ -1380,10 +1597,13 @@ class DashboardPanel(BasePanel):
 # ═══════════════════════════════════════════════════════════════
 # INVENTARIO
 # ═══════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════
+# INVENTARIO
+# ═══════════════════════════════════════════════════════════════
 class InventarioPanel(BasePanel):
     PAGE_SIZE = 100
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "📦 Inventario")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "📦 Inventario")
         self._sel = None; self._page = 1; self._build(); self._refresh()
 
     def _build(self):
@@ -1398,13 +1618,14 @@ class InventarioPanel(BasePanel):
         self.l_val = W_label(tb1, "", size=10, color=OK); self.l_val.pack(side="right", padx=8)
 
         tb2 = ctk.CTkFrame(self, fg_color="transparent"); tb2.pack(fill="x", pady=(0,6))
-        W_btn(tb2, "➕ Nuevo",    self._new,    w=110).pack(side="left")
-        W_btn(tb2, "✏️ Editar",   self._edit,   w=110, color="#444").pack(side="left", padx=3)
-        W_btn(tb2, "📦 Stock",    self._adj,    w=100, color=WARN).pack(side="left", padx=3)
+        W_btn(tb2, "➕ Nuevo",    self._new,    w=110, color=OK).pack(side="left")
+        W_btn(tb2, "✏️ Editar",   self._edit,   w=110, color=CARD2).pack(side="left", padx=3)
+        W_btn(tb2, "📦 Ajustar",  self._adj,    w=100, color=WARN).pack(side="left", padx=3)
+        W_btn(tb2, "🚚 Transferir", self._transfer, w=110, color="#1f538d").pack(side="left", padx=3)
         if is_admin: W_btn(tb2, "🗑 Eliminar", self._del, w=110, color=ERR).pack(side="left", padx=3)
-        W_btn(tb2, "📥 Excel",    self._import, w=100, color="#444").pack(side="left", padx=3)
-        W_btn(tb2, "📤 Exportar", self._export, w=110, color="#444").pack(side="left", padx=3)
-        if is_admin: W_btn(tb2, "🧹 Limpiar", self._clean, w=120, color="#555").pack(side="left", padx=3)
+        W_btn(tb2, "📥 Excel",    self._import, w=100, color=CARD2).pack(side="left", padx=3)
+        W_btn(tb2, "📤 Exportar", self._export, w=110, color=CARD2).pack(side="left", padx=3)
+        if is_admin: W_btn(tb2, "🧹 Limpiar", self._clean, w=120, color=DIM).pack(side="left", padx=3)
 
         frm = W_card(self); frm.pack(fill="both", expand=True)
         self.tree = make_tree(frm,
@@ -1416,11 +1637,11 @@ class InventarioPanel(BasePanel):
         self.tree.bind("<Double-1>", lambda _: self._edit())
 
         pf = ctk.CTkFrame(self, fg_color="transparent"); pf.pack(fill="x", pady=(4,0))
-        W_btn(pf, "«", lambda: self._go_page(1),             color="#333", w=36, h=28).pack(side="left")
-        W_btn(pf, "‹", lambda: self._go_page(self._page-1),  color="#333", w=36, h=28).pack(side="left", padx=2)
+        W_btn(pf, "«", lambda: self._go_page(1),             color=CARD2, w=36, h=28).pack(side="left")
+        W_btn(pf, "‹", lambda: self._go_page(self._page-1),  color=CARD2, w=36, h=28).pack(side="left", padx=2)
         self.l_page = W_label(pf, "Pág 1 / 1", size=10, color=DIM); self.l_page.pack(side="left", padx=6)
-        W_btn(pf, "›", lambda: self._go_page(self._page+1),  color="#333", w=36, h=28).pack(side="left")
-        W_btn(pf, "»", lambda: self._go_page(9999),           color="#333", w=36, h=28).pack(side="left", padx=2)
+        W_btn(pf, "›", lambda: self._go_page(self._page+1),  color=CARD2, w=36, h=28).pack(side="left")
+        W_btn(pf, "»", lambda: self._go_page(9999),           color=CARD2, w=36, h=28).pack(side="left", padx=2)
         self.l_count = W_label(pf, "", size=10, color=DIM); self.l_count.pack(side="right", padx=8)
 
     def _on_sel(self):
@@ -1434,19 +1655,25 @@ class InventarioPanel(BasePanel):
         max_page = max(1, (total+self.PAGE_SIZE-1)//self.PAGE_SIZE)
         if self._page > max_page: self._page = max_page
         self.tree.delete(*self.tree.get_children())
-        low_ids = {p["id"] for p in self.db.low_stock()}
+        low_ids = {p["id"] for p in self.db.low_stock(self.loc_id)}
         for p in rows:
             margin = ((p["price"]-p["cost"])/p["price"]*100) if p["price"]>0 else 0
             tag = ("low",) if p["id"] in low_ids else ()
+            
+            # Mostrar stock global o del punto de venta si se seleccionó uno
+            stock_val = p["stock"]
+            if self.loc_id:
+                stock_val = self.db.get_pos_stock(self.loc_id, p["id"])
+                
             self.tree.insert("","end", tags=tag, values=(
                 p["id"],p["sku"],p["name"],p["category"],
                 fmt(p["price"]),fmt(p["cost"]),f"{margin:.1f}%",
-                p["supplier"],p["stock"],p["unit"]))
+                p["supplier"],stock_val,p["unit"]))
         start = (self._page-1)*self.PAGE_SIZE+1 if total else 0
         end   = min(self._page*self.PAGE_SIZE, total)
         self.l_page.configure(text=f"Pág {self._page} / {max_page}")
         self.l_count.configure(text=f"Mostrando {start}–{end} de {total} productos")
-        iv = self.db.inventory_value()
+        iv = self.db.inventory_value(self.loc_id)
         self.l_val.configure(text=f"Stock: {fmt(iv['venta'])} (venta)  ·  {fmt(iv['costo'])} (costo)")
 
     def _go_page(self, p):
@@ -1516,23 +1743,98 @@ class InventarioPanel(BasePanel):
             if data: self.db.upd_product(data["id"],name,sku or data["sku"],barcode,category,price,cost,supplier,stock,min_stock,unit)
             else:    self.db.add_product(name,sku,barcode,category,price,cost,supplier,stock,min_stock,unit)
             dlg.destroy(); self._refresh()
-        W_btn(dlg, "💾 Guardar", save, w=426, h=40).pack(padx=_sc(26), pady=_sc(14))
+        W_btn(dlg, "💾 Guardar", save, w=426, h=40, color=OK).pack(padx=_sc(26), pady=_sc(14))
 
     def _adj(self):
         if not self._sel: messagebox.showinfo("Info","Selecciona un producto"); return
         p = self.db.get_product(self._sel)
-        dlg = ctk.CTkToplevel(self); dlg.title("Ajustar Stock"); dlg.geometry("340x230"); dlg.grab_set()
+        dlg = ctk.CTkToplevel(self); dlg.title("Ajustar Stock"); dlg.geometry("380x280"); dlg.grab_set()
         dlg.configure(fg_color=BG)
         W_label(dlg, p["name"], size=13, bold=True).pack(pady=(20,4))
-        W_label(dlg, f"Stock actual: {p['stock']} {p['unit']}", color=DIM).pack()
+        
+        stock_str = f"{p['stock']} {p['unit']} (Global)"
+        if self.loc_id:
+            pos_stock = self.db.get_pos_stock(self.loc_id, p["id"])
+            stock_str = f"{pos_stock} {p['unit']} (En este punto)"
+            
+        W_label(dlg, f"Stock actual: {stock_str}", color=DIM).pack()
         W_label(dlg, "Cantidad a sumar (+) o restar (-)", size=10, color=DIM).pack(pady=(14,2))
         e = W_entry(dlg, "ej: 50 ó -10", w=250); e.pack()
         def go():
             try: delta = int(e.get())
             except: messagebox.showerror("Error","Número entero requerido",parent=dlg); return
-            if p["stock"]+delta<0: messagebox.showerror("Error","Stock no puede ser negativo",parent=dlg); return
-            self.db.adj_stock(self._sel, delta); dlg.destroy(); self._refresh()
+            
+            if self.loc_id:
+                if pos_stock+delta<0: messagebox.showerror("Error","Stock no puede ser negativo",parent=dlg); return
+                self.db.adj_pos_stock(self.loc_id, self._sel, delta)
+                self.db.adj_stock(self._sel, delta) # Ajustar global también
+            else:
+                if p["stock"]+delta<0: messagebox.showerror("Error","Stock no puede ser negativo",parent=dlg); return
+                self.db.adj_stock(self._sel, delta)
+                
+            dlg.destroy(); self._refresh()
         W_btn(dlg, "✅ Aplicar", go, w=250, h=38).pack(pady=14)
+        
+    def _transfer(self):
+        if not self._sel: messagebox.showinfo("Info","Selecciona un producto"); return
+        p = self.db.get_product(self._sel)
+        dlg = ctk.CTkToplevel(self); dlg.title("Transferir Inventario"); dlg.geometry("400x380"); dlg.grab_set()
+        dlg.configure(fg_color=BG)
+        W_label(dlg, p["name"], size=13, bold=True).pack(pady=(20,4))
+        W_label(dlg, f"Stock Global: {p['stock']} {p['unit']}", color=DIM).pack()
+        
+        locs = self.db.get_locations()
+        if len(locs) < 2:
+            messagebox.showinfo("Info", "Se requieren al menos 2 puntos de venta para transferir", parent=dlg)
+            dlg.destroy()
+            return
+            
+        f1 = ctk.CTkFrame(dlg, fg_color="transparent"); f1.pack(pady=10)
+        W_label(f1, "Origen:", size=10, color=DIM).grid(row=0, column=0, sticky="w", padx=5)
+        cb_from = W_combo(f1, [l["name"] for l in locs], w=200); cb_from.grid(row=0, column=1, padx=5, pady=5)
+        
+        W_label(f1, "Destino:", size=10, color=DIM).grid(row=1, column=0, sticky="w", padx=5)
+        cb_to = W_combo(f1, [l["name"] for l in locs], w=200); cb_to.grid(row=1, column=1, padx=5, pady=5)
+        if self.loc_id:
+            loc_name = next((l["name"] for l in locs if l["id"] == self.loc_id), locs[0]["name"])
+            cb_from.set(loc_name)
+        else:
+            cb_from.set(locs[0]["name"])
+            cb_to.set(locs[1]["name"])
+            
+        W_label(dlg, "Cantidad a transferir:", size=10, color=DIM).pack(pady=(10,2))
+        e = W_entry(dlg, "ej: 5", w=200); e.pack()
+        
+        def _get_stock(*args):
+            l1 = next((l for l in locs if l["name"] == cb_from.get()), None)
+            if l1:
+                st = self.db.get_pos_stock(l1["id"], self._sel)
+                l_st.configure(text=f"Disponible en origen: {st} {p['unit']}")
+        
+        l_st = W_label(dlg, "", size=9, color=ACC); l_st.pack(pady=5)
+        cb_from.configure(command=_get_stock)
+        _get_stock()
+        
+        def go():
+            try: qty = int(e.get())
+            except: messagebox.showerror("Error","Número entero requerido",parent=dlg); return
+            if qty <= 0: messagebox.showerror("Error","Cantidad debe ser positiva",parent=dlg); return
+            
+            l1 = next((l for l in locs if l["name"] == cb_from.get()), None)
+            l2 = next((l for l in locs if l["name"] == cb_to.get()), None)
+            
+            if l1 and l2 and l1["id"] == l2["id"]:
+                messagebox.showerror("Error","Origen y destino no pueden ser iguales",parent=dlg); return
+                
+            st1 = self.db.get_pos_stock(l1["id"], self._sel)
+            if qty > st1:
+                messagebox.showerror("Error","Stock insuficiente en origen",parent=dlg); return
+                
+            self.db.transfer_inventory(l1["id"], l2["id"], self._sel, qty, self.user["id"], "Transferencia manual")
+            messagebox.showinfo("Éxito", f"Se transfirieron {qty} unidades", parent=dlg)
+            dlg.destroy(); self._refresh()
+            
+        W_btn(dlg, "🔄 Transferir", go, w=250, h=38, color="#1f538d").pack(pady=15)
 
     def _import(self):
         if not HAS_PD(): messagebox.showwarning("Sin pandas","pip install pandas openpyxl"); return
@@ -1571,16 +1873,16 @@ class InventarioPanel(BasePanel):
 # CLIENTES
 # ═══════════════════════════════════════════════════════════════
 class ClientesPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "👥 Clientes")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "👥 Clientes")
         self._sel = None; self._build(); self._refresh()
 
     def _build(self):
         tb = ctk.CTkFrame(self, fg_color="transparent"); tb.pack(fill="x", pady=(0,8))
         self.e_s = W_entry(tb, "🔍  Buscar...", w=260); self.e_s.pack(side="left")
         self.e_s.bind("<KeyRelease>", lambda _: self._refresh())
-        W_btn(tb,"➕ Nuevo",   self._new,  w=110).pack(side="left", padx=(10,0))
-        W_btn(tb,"✏️ Editar",  self._edit, w=110, color="#444").pack(side="left", padx=4)
+        W_btn(tb,"➕ Nuevo",   self._new,  w=110, color=OK).pack(side="left", padx=(10,0))
+        W_btn(tb,"✏️ Editar",  self._edit, w=110, color=CARD2).pack(side="left", padx=4)
         W_btn(tb,"🗑 Eliminar",self._del,  w=110, color=ERR).pack(side="left", padx=(0,10))
         W_btn(tb,"💰 Abonar",  self._pay_debt, w=110, color=OK).pack(side="left")
         frm = W_card(self); frm.pack(fill="both", expand=True)
@@ -1671,7 +1973,7 @@ class ClientesPanel(BasePanel):
             if data: self.db.upd_client(data["id"], *args)
             else:    self.db.add_client(*args)
             dlg.destroy(); self._refresh()
-        W_btn(dlg, "💾 Guardar", save, w=378, h=40).pack(padx=_sc(26), pady=_sc(14))
+        W_btn(dlg, "💾 Guardar", save, w=378, h=40, color=OK).pack(padx=_sc(26), pady=_sc(14))
 
     def _new(self): self._form("Nuevo Cliente")
     def _edit(self):
@@ -1688,14 +1990,19 @@ class ClientesPanel(BasePanel):
 # PUNTO DE VENTA
 # ═══════════════════════════════════════════════════════════════
 class VentaPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user)
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id)
         self.cart = []; self._build()
 
     def _build(self):
         for w in self.winfo_children(): w.destroy()
-        W_label(self, "🛒 Punto de Venta", size=18, bold=True).pack(anchor="w", pady=(0,10))
-        self.active_sess = self.db.get_active_session(self.user["id"])
+        loc_name = ""
+        if self.loc_id:
+            loc = self.db.one("SELECT name FROM pos_locations WHERE id=?", (self.loc_id,))
+            if loc: loc_name = f" — {loc['name']}"
+            
+        W_label(self, f"🛒 Punto de Venta{loc_name}", size=18, bold=True).pack(anchor="w", pady=(0,10))
+        self.active_sess = self.db.get_active_session(self.user["id"], self.loc_id)
         if not self.active_sess: self._build_apertura()
         else:                    self._build_pos()
 
@@ -1711,7 +2018,7 @@ class VentaPanel(BasePanel):
             try: val = float(e_init.get().strip())
             except: l_err.configure(text="❌ Ingresa un número válido"); return
             if val < 0: l_err.configure(text="❌ El monto no puede ser negativo"); return
-            self.db.open_session(self.user["id"], val)
+            self.db.open_session(self.user["id"], val, self.loc_id)
             self._build()
         W_btn(frm, "▶  Iniciar Turno", open_box, w=280, h=42).pack(pady=16)
         e_init.bind("<Return>", lambda _: open_box())
@@ -1728,18 +2035,18 @@ class VentaPanel(BasePanel):
         self.e_prod.bind("<Return>",     lambda _: self._scan_or_add())
         W_label(srch, "  Cant:", size=10).pack(side="left", padx=(8,2))
         self.e_qty = W_entry(srch, "1", w=65); self.e_qty.insert(0,"1"); self.e_qty.pack(side="left")
-        frp = ctk.CTkFrame(lf, fg_color="#1a1a1a", corner_radius=8)
+        frp = ctk.CTkFrame(lf, fg_color=CARD, corner_radius=8)
         frp.pack(fill="both", expand=True, padx=10, pady=8)
         self.ptree = make_tree(frp,
             ("id","sku","name","price","stock"),
             ("ID","SKU","Producto","Precio","Stock"),
             (40,80,225,110,70))
-        self.ptree.tag_configure("nostock", foreground="#555")
+        self.ptree.tag_configure("nostock", foreground=DIM)
         self.ptree.bind("<Double-1>", lambda _: self._add())
         self._search_prod()
         btn_row = ctk.CTkFrame(lf, fg_color="transparent"); btn_row.pack(fill="x", padx=10, pady=(0,10))
         W_btn(btn_row, "➕  Agregar al carrito", self._add, w=240, h=34).pack(side="left")
-        W_btn(btn_row, "🔄 Actualizar", self._build, color="#333", w=120, h=34).pack(side="right")
+        W_btn(btn_row, "🔄 Actualizar", self._build, color=CARD2, w=120, h=34).pack(side="right")
 
         # ── Carrito ──
         rf = W_card(body); rf.pack(side="left", fill="y")
@@ -1767,7 +2074,7 @@ class VentaPanel(BasePanel):
         W_label(bf, "Descuento", size=10, color=DIM).pack(anchor="w", padx=12)
         self.e_disc = W_entry(bf, "0", w=374); self.e_disc.insert(0,"0"); self.e_disc.pack(padx=12, pady=2)
         self.e_disc.bind("<KeyRelease>", lambda _: self._upd_total())
-        ctk.CTkFrame(bf, fg_color="#333", height=1).pack(fill="x", padx=12, pady=4)
+        ctk.CTkFrame(bf, fg_color=CARD2, height=1).pack(fill="x", padx=12, pady=4)
         srow("TOTAL:", "l_total", OK)
 
         W_label(bf, "Cliente", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
@@ -1775,19 +2082,19 @@ class VentaPanel(BasePanel):
         self.cb_cli = W_combo(bf, clist, w=374); self.cb_cli.pack(padx=12, pady=2)
 
         W_label(bf, "Método de Pago", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
-        self.cb_pay = W_combo(bf, ["efectivo","tarjeta","transferencia","crédito","otro"], w=374)
+        self.cb_pay = W_combo(bf, ["efectivo","tarjeta","transferencia","crédito","rappi","otro"], w=374)
         self.cb_pay.pack(padx=12, pady=2)
 
         W_label(bf, "Notas (opcional)", size=10, color=DIM).pack(anchor="w", padx=12, pady=(4,0))
         self.e_notes = W_entry(bf, "", w=374); self.e_notes.pack(padx=12, pady=2)
 
         br = ctk.CTkFrame(bf, fg_color="transparent"); br.pack(fill="x", padx=_sc(12), pady=(_sc(8), _sc(12)))
-        W_btn(br, "🗑 Quitar",  self._remove, color="#444", w=100, h=36).pack(side="left", fill="x", expand=True)
-        W_btn(br, "🧹 Limpiar", self._clear,  color="#444", w=100, h=36).pack(side="left", fill="x", expand=True, padx=(_sc(4), _sc(4)))
+        W_btn(br, "🗑 Quitar",  self._remove, color=CARD2, w=100, h=36).pack(side="left", fill="x", expand=True)
+        W_btn(br, "🧹 Limpiar", self._clear,  color=CARD2, w=100, h=36).pack(side="left", fill="x", expand=True, padx=(_sc(4), _sc(4)))
         W_btn(br, "✅ COBRAR",  self._checkout, color=OK, w=120, h=36).pack(side="left", fill="x", expand=True)
 
         # ── Tabla del carrito (expande para llenar el espacio restante arriba) ──
-        frca = ctk.CTkFrame(rf, fg_color="#1a1a1a", corner_radius=8)
+        frca = ctk.CTkFrame(rf, fg_color=CARD, corner_radius=8)
         frca.pack(fill="both", expand=True, padx=10, pady=(0, 8))
         self.ctree = make_tree(frca,
             ("name","qty","price","sub"),
@@ -1798,8 +2105,11 @@ class VentaPanel(BasePanel):
     def _search_prod(self):
         self.ptree.delete(*self.ptree.get_children())
         for p in self.db.get_all_products(self.e_prod.get().strip()):
-            tag = ("nostock",) if p["stock"]<=0 else ()
-            self.ptree.insert("","end", tags=tag, values=(p["id"],p["sku"],p["name"],fmt(p["price"]),p["stock"]))
+            stock_val = p["stock"]
+            if self.loc_id:
+                stock_val = self.db.get_pos_stock(self.loc_id, p["id"])
+            tag = ("nostock",) if stock_val<=0 else ()
+            self.ptree.insert("","end", tags=tag, values=(p["id"],p["sku"],p["name"],fmt(p["price"]),stock_val))
 
     def _scan_or_add(self):
         """Enter en búsqueda: intenta por SKU exacto, si no agrega el primero de la lista."""
@@ -1823,19 +2133,23 @@ class VentaPanel(BasePanel):
         if not sel: return
         pid = int(self.ptree.item(sel[0])["values"][0])
         p   = self.db.get_product(pid)
-        if not p: return
-        try:    qty = float(self.e_qty.get())
-        except: qty = 1
-        if qty <= 0: return
-        if p["stock"] < qty:
-            messagebox.showwarning("Stock insuficiente", f"Solo hay {p['stock']} {p['unit']} disponibles"); return
-        for item in self.cart:
-            if item["product_id"] == pid:
-                if p["stock"] < item["quantity"]+qty:
-                    messagebox.showwarning("Stock","Sin stock suficiente"); return
-                item["quantity"] += qty
-                item["subtotal"] = round(item["quantity"]*item["unit_price"], 2)
-                self._upd_cart(); return
+        if p:
+            stock_val = p["stock"]
+            if self.loc_id:
+                stock_val = self.db.get_pos_stock(self.loc_id, pid)
+                
+            try:    qty = float(self.e_qty.get())
+            except: qty = 1
+            if qty <= 0: return
+            if stock_val < qty:
+                messagebox.showwarning("Stock insuficiente", f"Solo hay {stock_val} {p['unit']} disponibles"); return
+            for item in self.cart:
+                if item["product_id"] == pid:
+                    if stock_val < item["quantity"]+qty:
+                        messagebox.showwarning("Stock","Sin stock suficiente"); return
+                    item["quantity"] += qty
+                    item["subtotal"] = round(item["quantity"]*item["unit_price"], 2)
+                    self._upd_cart(); return
         self.cart.append({"product_id":pid,"product_name":p["name"],"quantity":qty,
                           "unit_price":p["price"],"subtotal":round(qty*p["price"],2)})
         self._upd_cart()
@@ -1927,7 +2241,7 @@ class VentaPanel(BasePanel):
         bf.pack(side="bottom", fill="x"); bf.pack_propagate(False)
         br = ctk.CTkFrame(bf, fg_color="transparent")
         br.pack(fill="both", expand=True, padx=14, pady=8)
-        W_btn(br, "✕ Cancelar", dlg.destroy, color="#444", w=110, h=40).pack(side="left")
+        W_btn(br, "✕ Cancelar", dlg.destroy, color=CARD2, w=110, h=40).pack(side="left")
 
         def _registrar():
             _do_register()
@@ -1963,24 +2277,46 @@ class VentaPanel(BasePanel):
         tbox = ctk.CTkFrame(body, fg_color=CARD, corner_radius=8)
         tbox.pack(fill="x", pady=4)
         labels_tot = {}
-        for attr, txt, col in [("sub","Subtotal:",TEXT),("disc","Descuento:",ERR),("iva","IVA:",DIM),("total","TOTAL FINAL:",OK)]:
+        RAPPI_COMM_PCT = 0.14  # 14% comisión Rappi
+
+        # Filas base: Subtotal, Descuento, IVA
+        for attr, txt, col in [("sub","Subtotal:",TEXT),("disc","Descuento:",ERR),("iva","IVA:",DIM)]:
             rw = ctk.CTkFrame(tbox, fg_color="transparent"); rw.pack(fill="x", padx=10, pady=1)
-            bold = attr=="total"; sz = 13 if bold else 10
-            W_label(rw, txt, size=sz, color=col, bold=bold).pack(side="left")
-            v = W_label(rw, fmt(0), size=sz, color=col, bold=bold); v.pack(side="right")
+            W_label(rw, txt, size=10, color=col).pack(side="left")
+            v = W_label(rw, fmt(0), size=10, color=col); v.pack(side="right")
             labels_tot[attr] = v
+
+        # Fila comisión Rappi (solo visible cuando el pago es rappi)
+        rappi_row = ctk.CTkFrame(tbox, fg_color="transparent")
+        W_label(rappi_row, f"📦 Comisión Rappi ({int(RAPPI_COMM_PCT*100)}%):", size=10, color=WARN).pack(side="left")
+        l_rappi_comm = W_label(rappi_row, fmt(0), size=10, color=WARN); l_rappi_comm.pack(side="right")
+        if payment == "rappi":
+            rappi_row.pack(fill="x", padx=10, pady=1)
+
+        # Fila TOTAL FINAL
+        rw_total = ctk.CTkFrame(tbox, fg_color="transparent"); rw_total.pack(fill="x", padx=10, pady=1)
+        W_label(rw_total, "TOTAL FINAL:", size=13, color=OK, bold=True).pack(side="left")
+        l_total_val = W_label(rw_total, fmt(0), size=13, color=OK, bold=True); l_total_val.pack(side="right")
+        labels_tot["total"] = l_total_val
 
         def _upd_totals(*_):
             try: pct = float(e_iva.get() or 0) / 100
             except: pct = 0
             iva   = round((sub - disc) * pct, 0)
             tf    = sub - disc + iva
+            # Si el pago es Rappi, descontar la comisión del total final
+            if payment == "rappi":
+                comm = round(tf * RAPPI_COMM_PCT, 0)
+                tf_neto = tf - comm
+                l_rappi_comm.configure(text=f"- {fmt(comm)}")
+            else:
+                tf_neto = tf
             iva_state["val"]   = iva
-            total_state["val"] = tf
+            total_state["val"] = tf_neto
             labels_tot["sub"].configure(text=fmt(sub))
             labels_tot["disc"].configure(text=f"- {fmt(disc)}")
             labels_tot["iva"].configure(text=fmt(iva))
-            labels_tot["total"].configure(text=fmt(tf))
+            labels_tot["total"].configure(text=fmt(tf_neto))
         e_iva.bind("<KeyRelease>", _upd_totals)
         _upd_totals()
 
@@ -1999,12 +2335,12 @@ class VentaPanel(BasePanel):
         ctk.CTkCheckBox(
             body, text="📄 Emitir Factura Electrónica DIAN (opcional)",
             variable=apply_dian, command=_toggle_dian,
-            checkmark_color="white", fg_color="#2980b9", hover_color="#3498db",
+            checkmark_color="white", fg_color="#2980b9", hover_color=ACC,
             font=("Segoe UI", 11, "bold")
         ).pack(anchor="w", pady=(2,0))
 
         # Panel DIAN (oculto por defecto)
-        W_label(dian_frame, "📋 Datos para la DIAN:", size=10, bold=True, color="#3498db").pack(anchor="w", padx=10, pady=(6,2))
+        W_label(dian_frame, "📋 Datos para la DIAN:", size=10, bold=True, color=ACC).pack(anchor="w", padx=10, pady=(6,2))
         # Tipo doc
         dr = ctk.CTkFrame(dian_frame, fg_color="transparent"); dr.pack(fill="x", padx=10, pady=2)
         W_label(dr, "Tipo doc:", size=9, color=DIM).pack(side="left")
@@ -2034,11 +2370,18 @@ class VentaPanel(BasePanel):
             except Exception: pass
             # Sesión
             try:
-                active_sess = self.db.get_active_session(self.user["id"])
+                active_sess = self.db.get_active_session(self.user["id"], self.loc_id)
                 sess_id = active_sess["id"] if active_sess else None
+                # Si el pago es Rappi, sumar la comisión al descuento efectivo
+                sub_cart = sum(i["subtotal"] for i in self.cart)
+                if payment == "rappi":
+                    rappi_comm = round((sub_cart - disc) * RAPPI_COMM_PCT, 0)
+                    effective_disc = disc + rappi_comm
+                else:
+                    effective_disc = disc
                 sid = self.db.create_sale(
                     client_id, self.user["id"], self.cart,
-                    disc, payment, notes, sess_id)
+                    effective_disc, payment, notes, sess_id, self.loc_id)
             except Exception as e:
                 log.error(f"Error registrando venta: {e}", exc_info=True)
                 messagebox.showerror("❌ Error", f"No se pudo guardar la venta:\n{e}", parent=dlg); return
@@ -2110,6 +2453,9 @@ class VentaPanel(BasePanel):
                 lines.append(f"{qty:<5} {name:<25} {tot:>10}")
             lines += ["-"*W, f"{'Subtotal:':<30} {sym}{sub:>10,.0f}"]
             if disc > 0: lines.append(f"{'Descuento:':<30} -{sym}{disc:>9,.0f}")
+            if payment == "rappi":
+                rappi_comm = round(total * 0.14, 0)
+                lines.append(f"{'Comision Rappi (14%):':<30} -{sym}{rappi_comm:>9,.0f}")
             lines += ["-"*W, f"{'TOTAL:':<30} {sym}{total:>10,.0f}", "-"*W,
                       f"Pago: {payment.capitalize()}".ljust(W)]
             if cambio > 0: lines.append(f"Cambio: {sym}{cambio:.0f}".ljust(W))
@@ -2172,6 +2518,9 @@ class VentaPanel(BasePanel):
             p.text(f"Subtotal: {sym}{sub:,.0f}\n")
             if disc > 0:
                 p.text(f"Descuento: -{sym}{disc:,.0f}\n")
+            if payment == "rappi":
+                rappi_comm = round(total * 0.14, 0)
+                p.text(f"Comision Rappi (14%): -{sym}{rappi_comm:,.0f}\n")
             p.set(bold=True, width=2, height=2)
             p.text(f"TOTAL: {sym}{total:,.0f}\n")
             p.set(bold=False, width=1, height=1)
@@ -2228,8 +2577,8 @@ class VentaPanel(BasePanel):
 
 
 class CierreCajaPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "💰 Turno y Cierre de Caja")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "💰 Turno y Cierre de Caja")
         self._build()
 
     def _build(self):
@@ -2243,14 +2592,14 @@ class CierreCajaPanel(BasePanel):
     def _load_turno(self):
         tab = self.tabs.tab("📊 Turno Activo")
         for w in tab.winfo_children(): w.destroy()
-        sess = self.db.get_active_session(self.user["id"])
+        sess = self.db.get_active_session(self.user["id"], self.loc_id)
         if sess: self._show_active(tab, sess)
         else:    self._show_no_session(tab)
 
     def _show_no_session(self, tab):
         frm = W_card(tab); frm.pack(expand=True, padx=60, pady=40, fill="x")
         W_label(frm, "⏸  Sin turno activo", size=16, bold=True, color=WARN).pack(pady=(30,8))
-        W_label(frm, "No hay ningún turno abierto. Puedes abrir uno aquí o desde el Punto de Venta.", size=11, color=DIM, wraplength=400, justify="center").pack()
+        W_label(frm, "No hay ningún turno abierto en este punto de venta. Puedes abrir uno aquí o desde el Punto de Venta.", size=11, color=DIM, wraplength=400, justify="center").pack()
         W_label(frm, "Efectivo inicial en caja", size=11, color=DIM).pack(pady=(20,2))
         e_init = W_entry(frm, "ej: 50000", w=280); e_init.insert(0, "0"); e_init.pack()
         l_err  = W_label(frm, "", color=ERR, size=10); l_err.pack(pady=4)
@@ -2258,7 +2607,7 @@ class CierreCajaPanel(BasePanel):
             try: val = float(e_init.get().strip())
             except: l_err.configure(text="❌ Ingresa un número válido"); return
             if val < 0: l_err.configure(text="❌ El monto no puede ser negativo"); return
-            self.db.open_session(self.user["id"], val)
+            self.db.open_session(self.user["id"], val, self.loc_id)
             self._load_turno()
         W_btn(frm, "▶  Abrir Turno", open_box, w=280, h=42).pack(pady=12)
         e_init.bind("<Return>", lambda _: open_box())
@@ -2272,7 +2621,7 @@ class CierreCajaPanel(BasePanel):
         hdr = W_card(sf); hdr.pack(fill="x", padx=4, pady=(4,6))
         hr  = ctk.CTkFrame(hdr, fg_color="transparent"); hr.pack(fill="x", padx=16, pady=10)
         W_label(hr, f"⏱  Turno abierto: {summary['opened_at']}", bold=True, color=OK).pack(side="left")
-        W_btn(hr, "🔄 Actualizar", self._load_turno, color="#333", w=110, h=26).pack(side="right")
+        W_btn(hr, "🔄 Actualizar", self._load_turno, color=CARD2, w=110, h=26).pack(side="right")
 
         # Stats cards
         stats = ctk.CTkFrame(sf, fg_color="transparent"); stats.pack(fill="x", padx=4)
@@ -2297,7 +2646,7 @@ class CierreCajaPanel(BasePanel):
         self.cb_ttype.pack(side="left")
         self.e_tdesc  = W_entry(tr, "Descripción (ej: pago luz)", w=200); self.e_tdesc.pack(side="left", padx=6)
         self.e_tamt   = W_entry(tr, "Monto", w=110); self.e_tamt.pack(side="left")
-        W_btn(tr, "Registrar", lambda: self._add_trans(sess["id"]), w=100, h=30).pack(side="left", padx=6)
+        W_btn(tr, "Registrar", lambda: self._add_trans(sess["id"], color=OK), w=100, h=30).pack(side="left", padx=6)
 
         # Recent transactions
         trans_list = self.db.all(
@@ -2312,12 +2661,23 @@ class CierreCajaPanel(BasePanel):
 
         # Cierre
         cc = W_card(sf); cc.pack(fill="x", padx=4, pady=4)
-        cr = ctk.CTkFrame(cc, fg_color="transparent"); cr.pack(fill="x", padx=16, pady=12)
-        W_label(cr, "💰  Efectivo real al cerrar:", bold=True).pack(side="left")
-        self.e_actual = W_entry(cr, "0", w=150); self.e_actual.pack(side="left", padx=10)
-        W_btn(cr, "⏹  Cerrar Turno",
+        W_label(cc, "💰  Conteo de dinero al cerrar", bold=True, color=ACC).pack(pady=(10,6))
+
+        # Fila: Efectivo en caja
+        cr1 = ctk.CTkFrame(cc, fg_color="transparent"); cr1.pack(fill="x", padx=16, pady=(2,4))
+        W_label(cr1, "💵  Efectivo real en caja:", bold=True).pack(side="left")
+        self.e_actual_cash = W_entry(cr1, "0", w=150); self.e_actual_cash.pack(side="left", padx=10)
+
+        # Fila: Saldo Nequi
+        cr2 = ctk.CTkFrame(cc, fg_color="transparent"); cr2.pack(fill="x", padx=16, pady=(2,4))
+        W_label(cr2, "📱  Saldo real en Nequi:", bold=True).pack(side="left")
+        self.e_actual_nequi = W_entry(cr2, "0", w=150); self.e_actual_nequi.pack(side="left", padx=10)
+
+        # Botón cerrar
+        cr3 = ctk.CTkFrame(cc, fg_color="transparent"); cr3.pack(fill="x", padx=16, pady=(4,12))
+        W_btn(cr3, "⏹  Cerrar Turno",
               lambda: self._close(sess["id"], summary["expected_cash"]),
-              color=ERR, w=160).pack(side="right")
+              color=ERR, w=180).pack(side="right")
 
     def _add_trans(self, sess_id):
         desc = self.e_tdesc.get().strip()
@@ -2331,8 +2691,12 @@ class CierreCajaPanel(BasePanel):
         self._load_turno()
 
     def _close(self, sess_id, expected):
-        try: actual = float(self.e_actual.get())
-        except: messagebox.showerror("Error","Ingresa el monto real"); return
+        try:
+            actual_cash  = float(self.e_actual_cash.get()  or "0")
+            actual_nequi = float(self.e_actual_nequi.get() or "0")
+            actual = actual_cash + actual_nequi
+        except:
+            messagebox.showerror("Error", "Ingresa montos válidos en Caja y Nequi"); return
         diff = actual - expected
         cuadro = abs(diff) < 1
 
@@ -2342,7 +2706,9 @@ class CierreCajaPanel(BasePanel):
             f"  RESUMEN DE CIERRE DE CAJA\n"
             f"──────────────────────────────\n\n"
             f"  💰 Esperado en caja:  {fmt(expected)}\n"
-            f"  💵 Real contado:      {fmt(actual)}\n"
+            f"  💵 Efectivo en caja:  {fmt(actual_cash)}\n"
+            f"  📱 Saldo en Nequi:   {fmt(actual_nequi)}\n"
+            f"  🧾 Total real:        {fmt(actual)}\n"
             f"  📊 Diferencia:        {fmt(diff)}\n\n"
             f"{'  ✅ CAJA CUADRADA' if cuadro else f'  ⚠️ DESCUADRE DE {fmt(abs(diff))}'}\n\n"
             f"──────────────────────────────\n"
@@ -2367,18 +2733,22 @@ class CierreCajaPanel(BasePanel):
             resultado_msg = (
                 f"El turno fue cerrado exitosamente.\n\n"
                 f"✅  ¡La caja CUADRÓ perfectamente!\n\n"
-                f"   Esperado: {fmt(expected)}\n"
-                f"   Real:     {fmt(actual)}\n"
-                f"   Diferencia: {fmt(diff)}"
+                f"   Esperado:          {fmt(expected)}\n"
+                f"   Efectivo en caja:  {fmt(actual_cash)}\n"
+                f"   Saldo Nequi:       {fmt(actual_nequi)}\n"
+                f"   Total real:        {fmt(actual)}\n"
+                f"   Diferencia:        {fmt(diff)}"
             )
         elif diff > 0:
             resultado_titulo = "⚠️ Caja Cerrada — SOBRANTE"
             resultado_msg = (
                 f"El turno fue cerrado exitosamente.\n\n"
                 f"⚠️  Hubo un SOBRANTE en caja.\n\n"
-                f"   Esperado:  {fmt(expected)}\n"
-                f"   Real:      {fmt(actual)}\n"
-                f"   Sobrante:  +{fmt(diff)}\n\n"
+                f"   Esperado:          {fmt(expected)}\n"
+                f"   Efectivo en caja:  {fmt(actual_cash)}\n"
+                f"   Saldo Nequi:       {fmt(actual_nequi)}\n"
+                f"   Total real:        {fmt(actual)}\n"
+                f"   Sobrante:          +{fmt(diff)}\n\n"
                 f"Verifica ingresos no registrados."
             )
         else:
@@ -2386,9 +2756,11 @@ class CierreCajaPanel(BasePanel):
             resultado_msg = (
                 f"El turno fue cerrado exitosamente.\n\n"
                 f"⚠️  Hubo un FALTANTE en caja.\n\n"
-                f"   Esperado:  {fmt(expected)}\n"
-                f"   Real:      {fmt(actual)}\n"
-                f"   Faltante:  {fmt(diff)}\n\n"
+                f"   Esperado:          {fmt(expected)}\n"
+                f"   Efectivo en caja:  {fmt(actual_cash)}\n"
+                f"   Saldo Nequi:       {fmt(actual_nequi)}\n"
+                f"   Total real:        {fmt(actual)}\n"
+                f"   Faltante:          {fmt(diff)}\n\n"
                 f"Verifica egresos o ventas no contabilizadas."
             )
 
@@ -2411,8 +2783,8 @@ class CierreCajaPanel(BasePanel):
             ("Apertura","Cierre","Inicial","Final","Esperado","Estado / Dif.","Usuario"),
             (130,130,90,90,100,140,110))
             
-        tree.tag_configure("cuadre", foreground="#4caf50")
-        tree.tag_configure("descuadre", foreground="#ff5252")
+        tree.tag_configure("cuadre", foreground=OK)
+        tree.tag_configure("descuadre", foreground=ERR)
         
         for s in sessions:
             diff_val = s.get("difference", 0) or 0
@@ -2434,8 +2806,8 @@ class CierreCajaPanel(BasePanel):
 # GASTOS
 # ═══════════════════════════════════════════════════════════════
 class GastosPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "💸 Gastos Operativos")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "💸 Gastos Operativos")
         self._build(); self._load()
 
     def _build(self):
@@ -2445,9 +2817,9 @@ class GastosPanel(BasePanel):
         W_label(ctrl,"Hasta:", size=10, color=DIM).pack(side="left")
         self.e_d2 = W_entry(ctrl, w=120); self.e_d2.insert(0, date.today().isoformat()); self.e_d2.pack(side="left", padx=4)
         W_btn(ctrl,"🔍 Ver",   self._load,              w=90).pack(side="left", padx=8)
-        W_btn(ctrl,"Hoy",  lambda: self._range(0),  color="#333", w=60).pack(side="left", padx=2)
-        W_btn(ctrl,"7d",   lambda: self._range(7),  color="#333", w=55).pack(side="left", padx=2)
-        W_btn(ctrl,"30d",  lambda: self._range(30), color="#333", w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"Hoy",  lambda: self._range(0),  color=CARD2, w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"7d",   lambda: self._range(7),  color=CARD2, w=55).pack(side="left", padx=2)
+        W_btn(ctrl,"30d",  lambda: self._range(30), color=CARD2, w=60).pack(side="left", padx=2)
         
         W_btn(ctrl,"➕ Nuevo Gasto", self._new_expense, color=WARN, w=140).pack(side="right")
 
@@ -2471,13 +2843,13 @@ class GastosPanel(BasePanel):
             if not d1 or not d2: return
             
             for w in self.f_sum.winfo_children(): w.destroy()
-            summ = self.db.expenses_summary(d1, d2)
+            summ = self.db.expenses_summary(d1, d2, self.loc_id)
             
             c = W_card(self.f_sum); c.pack(side="left", fill="x", padx=(0,5))
             W_label(c, f"Total Gastos: {fmt(summ['total'])}", size=14, bold=True, color=WARN).pack(padx=20, pady=10)
 
             self.tree.delete(*self.tree.get_children())
-            for e in self.db.get_expenses(d1, d2):
+            for e in self.db.get_expenses(d1, d2, self.loc_id):
                 self.tree.insert("","end", values=(
                     e["id"], e["date"], e["category"], fmt(e["amount"]), e["description"], e["uname"]
                 ))
@@ -2529,12 +2901,12 @@ class GastosPanel(BasePanel):
             affect_cash = (chk_var.get() == "1")
             sess_id = None
             if affect_cash:
-                sess = self.db.get_active_session(self.user["id"])
+                sess = self.db.get_active_session(self.user["id"], self.loc_id)
                 if not sess:
                     messagebox.showerror("Error", "No hay un turno de caja abierto para registrar el egreso.", parent=dlg); return
                 sess_id = sess["id"]
                 
-            self.db.add_expense(self.user["id"], sess_id, cat, amount, e_desc.get().strip(), affect_cash)
+            self.db.add_expense(self.user["id"], sess_id, cat, amount, e_desc.get().strip(), affect_cash, self.loc_id)
             dlg.destroy(); self._load()
             messagebox.showinfo("✅", f"Gasto registrado: {fmt(amount)}")
             
@@ -2545,24 +2917,42 @@ class GastosPanel(BasePanel):
 # INFORMES
 # ═══════════════════════════════════════════════════════════════
 class InformesPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "📄 Informes y Análisis")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "📄 Informes y Análisis")
         self._fig = None   # referencia a la figura matplotlib activa
         self._build()
         self._load()
 
     def _build(self):
         ctrl = ctk.CTkFrame(self, fg_color="transparent"); ctrl.pack(fill="x", pady=(0,8))
+        
+        # Opciones de sede
+        self._locs_map = {"Todas las sedes": None}
+        for loc in self.db.get_locations(active_only=False):
+            self._locs_map[loc["name"]] = loc["id"]
+        
+        W_label(ctrl,"Sede:", size=10, color=DIM).pack(side="left")
+        self._cb_loc = W_combo(ctrl, list(self._locs_map.keys()), w=140)
+        self._cb_loc.pack(side="left", padx=(4,12))
+        
+        # Seleccionar por defecto la sede actual o "Todas las sedes" si no hay ninguna
+        def_name = "Todas las sedes"
+        if self.loc_id:
+            for name, lid in self._locs_map.items():
+                if lid == self.loc_id:
+                    def_name = name; break
+        self._cb_loc.set(def_name)
+        
         W_label(ctrl,"Desde:", size=10, color=DIM).pack(side="left")
-        self.e_d1 = W_entry(ctrl, w=120); self.e_d1.insert(0, date.today().isoformat()); self.e_d1.pack(side="left", padx=(4,12))
+        self.e_d1 = W_entry(ctrl, w=100); self.e_d1.insert(0, date.today().isoformat()); self.e_d1.pack(side="left", padx=(4,12))
         W_label(ctrl,"Hasta:", size=10, color=DIM).pack(side="left")
-        self.e_d2 = W_entry(ctrl, w=120); self.e_d2.insert(0, date.today().isoformat()); self.e_d2.pack(side="left", padx=4)
-        W_btn(ctrl,"🔍 Ver",   self._load,              w=90).pack(side="left", padx=8)
-        W_btn(ctrl,"Hoy",  lambda: self._range(0),  color="#333", w=60).pack(side="left", padx=2)
-        W_btn(ctrl,"7d",   lambda: self._range(7),  color="#333", w=55).pack(side="left", padx=2)
-        W_btn(ctrl,"30d",  lambda: self._range(30), color="#333", w=60).pack(side="left", padx=2)
-        W_btn(ctrl,"90d",  lambda: self._range(90), color="#333", w=60).pack(side="left", padx=2)
-        W_btn(ctrl,"📤 Excel", self._export_excel,   color="#444", w=100).pack(side="right")
+        self.e_d2 = W_entry(ctrl, w=100); self.e_d2.insert(0, date.today().isoformat()); self.e_d2.pack(side="left", padx=4)
+        W_btn(ctrl,"🔍 Ver",   self._load,              w=70).pack(side="left", padx=8)
+        W_btn(ctrl,"Hoy",  lambda: self._range(0),  color=CARD2, w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"7d",   lambda: self._range(7),  color=CARD2, w=55).pack(side="left", padx=2)
+        W_btn(ctrl,"30d",  lambda: self._range(30), color=CARD2, w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"90d",  lambda: self._range(90), color=CARD2, w=60).pack(side="left", padx=2)
+        W_btn(ctrl,"📤 Excel", self._export_excel,   color=CARD2, w=100).pack(side="right")
         self.f_sum = ctk.CTkFrame(self, fg_color="transparent"); self.f_sum.pack(fill="x", pady=(0,8))
         self.tabs = ctk.CTkTabview(self, fg_color=CARD, corner_radius=10)
         self.tabs.pack(fill="both", expand=True)
@@ -2570,9 +2960,9 @@ class InformesPanel(BasePanel):
 
         tv = self.tabs.tab("📋 Ventas")
         self.stree = make_tree(tv,
-            ("id","date","time","client","user","subtotal","disc","total","pay"),
-            ("ID","Fecha","Hora","Cliente","Vendedor","Subtotal","Desc","Total","Pago"),
-            (40,90,55,150,100,100,78,100,90))
+            ("id","date","time","client","user","subtotal","disc","total","profit","pay"),
+            ("ID","Fecha","Hora","Cliente","Vendedor","Subtotal","Desc","Total","Ganancia","Pago"),
+            (40,90,55,130,100,80,78,80,80,90))
         self.stree.bind("<Double-1>", self._detail)
         self.f_chart = self.tabs.tab("📊 Gráficos")
         pt = self.tabs.tab("🏆 Productos")
@@ -2589,7 +2979,11 @@ class InformesPanel(BasePanel):
             d1 = self.e_d1.get().strip(); d2 = self.e_d2.get().strip()
             if not d1 or not d2: return
             for w in self.f_sum.winfo_children(): w.destroy()
-            summ = self.db.summary(d1, d2); pr = self.db.profit_summary(d1, d2)
+            
+            # Obtener el loc_id seleccionado en el combobox
+            sel_loc = self._locs_map.get(self._cb_loc.get())
+            
+            summ = self.db.summary(d1, d2, sel_loc); pr = self.db.profit_summary(d1, d2, sel_loc)
             avg = summ["revenue"] / summ["cnt"] if summ["cnt"] else 0
             for icon, lbl, val, color in [
                 ("💰","Ingresos",    fmt(summ["revenue"]), OK),
@@ -2604,14 +2998,14 @@ class InformesPanel(BasePanel):
                 W_label(c, lbl, size=9, color=DIM).pack(pady=(0,10))
 
             self.stree.delete(*self.stree.get_children())
-            for sale in self.db.get_sales(d1, d2):
+            for sale in self.db.get_sales(d1, d2, sel_loc):
                 self.stree.insert("","end", values=(sale["id"],sale["date"],sale["time"],sale["cn"],sale["uname"],
-                    fmt(sale["subtotal"]),fmt(sale["discount"]),fmt(sale["total"]),sale["payment_method"]))
+                    fmt(sale["subtotal"]),fmt(sale["discount"]),fmt(sale["total"]),fmt(sale["profit"]),sale["payment_method"]))
             self.ptree.delete(*self.ptree.get_children())
-            for p in self.db.top_products(d1, d2, 30):
+            for p in self.db.top_products(d1, d2, 30, sel_loc):
                 self.ptree.insert("","end", values=(p["pname"],int(p["qty"]),fmt(p["rev"])))
             if HAS_MPL():
-                self._draw_charts(d1, d2)
+                self._draw_charts(d1, d2, sel_loc)
             else:
                 for w in self.f_chart.winfo_children(): w.destroy()
                 W_label(self.f_chart, "Gráficos no disponibles.\nAsegúrate de instalar 'matplotlib' o incluirlo en la compilación.",
@@ -2621,7 +3015,7 @@ class InformesPanel(BasePanel):
             messagebox.showerror("Error en Informes",
                 f"No se pudo cargar el panel de informes:\n\n{exc}")
 
-    def _draw_charts(self, d1, d2):
+    def _draw_charts(self, d1, d2, sel_loc):
         try:
             import matplotlib
             matplotlib.use("TkAgg")
@@ -2635,14 +3029,14 @@ class InformesPanel(BasePanel):
                 except Exception: pass
                 self._fig = None
 
-            days = self.db.sales_by_day(d1, d2)
-            pay  = self.db.sales_by_payment(d1, d2)
-            cats = self.db.sales_by_category(d1, d2)
-            clrs = [ACC, OK, WARN, ERR, PURPLE, "#1abc9c", "#e67e22"]
+            days = self.db.sales_by_day(d1, d2, sel_loc)
+            pay  = self.db.sales_by_payment(d1, d2, sel_loc)
+            cats = self.db.sales_by_category(d1, d2, sel_loc)
+            clrs = [ACC, OK, WARN, ERR, PURPLE, OK, WARN]
 
             self._fig = Figure(figsize=(10, 4), facecolor=CARD)
 
-            ax1 = self._fig.add_subplot(131); ax1.set_facecolor("#1a1a1a")
+            ax1 = self._fig.add_subplot(131); ax1.set_facecolor(CARD)
             if days:
                 ax1.bar([d["date"][-5:] for d in days], [d["rev"] for d in days],
                         color=ACC, width=0.65)
@@ -2654,20 +3048,20 @@ class InformesPanel(BasePanel):
             else:
                 ax1.text(0.5, 0.5, "Sin datos", ha="center", va="center",
                          color=DIM, transform=ax1.transAxes)
-            for sp in ax1.spines.values(): sp.set_color("#333")
+            for sp in ax1.spines.values(): sp.set_color(CARD2)
 
-            ax2 = self._fig.add_subplot(132); ax2.set_facecolor("#1a1a1a")
+            ax2 = self._fig.add_subplot(132); ax2.set_facecolor(CARD)
             if pay:
                 ax2.pie([p["total"] for p in pay], labels=[p["pm"] for p in pay],
                         colors=clrs[:len(pay)], autopct="%1.1f%%",
                         textprops={"color": TEXT, "fontsize": 8},
-                        wedgeprops={"linewidth": 0.5, "edgecolor": "#1a1a1a"})
+                        wedgeprops={"linewidth": 0.5, "edgecolor": CARD})
                 ax2.set_title("Método de Pago", color=TEXT, fontsize=9)
             else:
                 ax2.text(0.5, 0.5, "Sin datos", ha="center", va="center",
                          color=DIM, transform=ax2.transAxes)
 
-            ax3 = self._fig.add_subplot(133); ax3.set_facecolor("#1a1a1a")
+            ax3 = self._fig.add_subplot(133); ax3.set_facecolor(CARD)
             if cats:
                 ax3.barh([c["cat"][:14] for c in cats[:6]], [c["rev"] for c in cats[:6]],
                          color=clrs[:min(len(cats), len(clrs))])
@@ -2676,7 +3070,7 @@ class InformesPanel(BasePanel):
             else:
                 ax3.text(0.5, 0.5, "Sin datos", ha="center", va="center",
                          color=DIM, transform=ax3.transAxes)
-            for sp in ax3.spines.values(): sp.set_color("#333")
+            for sp in ax3.spines.values(): sp.set_color(CARD2)
 
             self._fig.tight_layout(pad=2.0)
             canvas = FigureCanvasTkAgg(self._fig, self.f_chart)
@@ -2716,7 +3110,9 @@ class InformesPanel(BasePanel):
         path = filedialog.asksaveasfilename(defaultextension=".xlsx",filetypes=[("Excel","*.xlsx")],
                initialfile=f"ventas_{d1}_a_{d2}.xlsx")
         if not path: return
-        try: self.db.export_sales_excel(path,d1,d2); messagebox.showinfo("Exportado",f"Guardado:\n{path}")
+        
+        sel_loc = self._locs_map.get(self._cb_loc.get())
+        try: self.db.export_sales_excel(path, d1, d2, sel_loc); messagebox.showinfo("Exportado",f"Guardado:\n{path}")
         except Exception as exc: messagebox.showerror("Error",str(exc))
 
 
@@ -2724,8 +3120,8 @@ class InformesPanel(BasePanel):
 # CATEGORÍAS
 # ═══════════════════════════════════════════════════════════════
 class CategoriasPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "🏷️ Gestión de Categorías")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "🏷️ Gestión de Categorías")
         self._build(); self._refresh()
 
     def _build(self):
@@ -2767,14 +3163,14 @@ class CategoriasPanel(BasePanel):
 # USUARIOS
 # ═══════════════════════════════════════════════════════════════
 class UsuariosPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "👤 Gestión de Usuarios")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "👤 Gestión de Usuarios")
         self._sel = None; self._build(); self._refresh()
 
     def _build(self):
         tb = ctk.CTkFrame(self, fg_color="transparent"); tb.pack(fill="x", pady=(0,8))
-        W_btn(tb,"➕ Nuevo",   self._new,  w=110).pack(side="left")
-        W_btn(tb,"✏️ Editar",  self._edit, w=110, color="#444").pack(side="left", padx=4)
+        W_btn(tb,"➕ Nuevo",   self._new,  w=110, color=OK).pack(side="left")
+        W_btn(tb,"✏️ Editar",  self._edit, w=110, color=CARD2).pack(side="left", padx=4)
         W_btn(tb,"🗑 Eliminar",self._del,  w=110, color=ERR).pack(side="left")
         frm = W_card(self); frm.pack(fill="both", expand=True)
         self.tree = make_tree(frm, ("id","username","role","active"),
@@ -2832,7 +3228,7 @@ class UsuariosPanel(BasePanel):
                 else:    self.db.add_user(u,p,rc.get())
                 dlg.destroy(); self._refresh()
             except Exception as exc: messagebox.showerror("Error",str(exc),parent=dlg)
-        W_btn(dlg,"💾 Guardar",save,w=348,h=40).pack(padx=26,pady=10)
+        W_btn(dlg,"💾 Guardar",save,w=348,h=40, color=OK).pack(padx=26,pady=10)
 
     def _new(self): self._form("Nuevo Usuario")
     def _edit(self):
@@ -2852,8 +3248,8 @@ class UsuariosPanel(BasePanel):
 # CONFIGURACIÓN
 # ═══════════════════════════════════════════════════════════════
 class ConfigPanel(BasePanel):
-    def __init__(self, master, db, user):
-        super().__init__(master, db, user, "⚙ Configuración del Negocio")
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id, "⚙ Configuración del Negocio")
         self._build()
 
     def _build(self):
@@ -2901,7 +3297,7 @@ class ConfigPanel(BasePanel):
 
         W_sep(left)
         W_btn(left, "💾  Guardar configuración general", self._save,
-              w=300, h=42).pack(pady=(12, 6))
+              w=300, h=42, color=OK).pack(pady=(12, 6))
         W_label(left, f"Log del día: {_log_file}", size=9, color=DIM).pack(pady=(0, 12))
 
         # ══════════════════════════════════════════════════════════════
@@ -2939,7 +3335,7 @@ class ConfigPanel(BasePanel):
             log.info("Logo eliminado")
 
         W_btn(logo_row, "📂  Seleccionar", _pick_logo, w=140, h=32).pack(side="left", padx=(4, 4))
-        W_btn(logo_row, "✕  Quitar", _clear_logo, color="#444", w=90, h=32).pack(side="left")
+        W_btn(logo_row, "✕  Quitar", _clear_logo, color=CARD2, w=90, h=32).pack(side="left")
 
         # ── Impresora POS ────────────────────────────────────────────
         W_sep(right)
@@ -3036,9 +3432,9 @@ class ConfigPanel(BasePanel):
 
         btn_row = ctk.CTkFrame(right, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=(10, 16))
-        W_btn(btn_row, "💾  Guardar imp.", _save_printer, w=140, h=36).pack(side="left")
+        W_btn(btn_row, "💾  Guardar imp.", _save_printer, w=140, h=36, color=OK).pack(side="left")
         W_btn(btn_row, "🧪  Prueba", _test_printer, color=OK, w=90, h=36).pack(side="left", padx=6)
-        W_btn(btn_row, "🔍  Buscar", _refresh_printers, color="#444", w=90, h=36).pack(side="left")
+        W_btn(btn_row, "🔍  Buscar", _refresh_printers, color=CARD2, w=90, h=36).pack(side="left")
 
         # ══════════════════════════════════════════════════════════════
         # FILA 1 — Facturación Electrónica DIAN (Factus)
@@ -3048,7 +3444,7 @@ class ConfigPanel(BasePanel):
                          padx=0, pady=(8, 0))
 
         W_label(factus_card, "📄 Facturación Electrónica DIAN — Factus",
-                bold=True, color="#3498db").pack(pady=(16, 2))
+                bold=True, color=ACC).pack(pady=(16, 2))
         W_label(factus_card,
                 "Completa estos datos para emitir facturas electrónicas válidas ante la DIAN de Colombia.",
                 size=9, color=DIM).pack()
@@ -3108,6 +3504,102 @@ class ConfigPanel(BasePanel):
         W_btn(factus_card, "💾  Guardar configuración Factus",
               _save_factus, color="#2980b9", w=280, h=42).pack(pady=(8, 16))
 
+        # ══════════════════════════════════════════════════════════════
+        # FILA 2 — Gestión de Puntos de Venta
+        # ══════════════════════════════════════════════════════════════
+        pos_card = W_card(cols)
+        pos_card.grid(row=2, column=0, columnspan=2, sticky="ew",
+                      padx=0, pady=(8, 0))
+
+        W_label(pos_card, "📍 Puntos de Venta",
+                bold=True, color=OK).pack(pady=(16, 2))
+        W_label(pos_card,
+                "Gestiona las sucursales o puntos de venta de tu negocio. "
+                "Cada punto tiene su inventario, caja e informes independientes.",
+                size=9, color=DIM).pack()
+        W_sep(pos_card)
+
+        # Lista de ubicaciones existentes
+        pos_list_frame = ctk.CTkFrame(pos_card, fg_color="transparent")
+        pos_list_frame.pack(fill="x", padx=20, pady=(10, 5))
+
+        self._pos_tree = make_tree(pos_list_frame,
+            ("id", "name", "address", "phone", "status"),
+            ("ID", "Nombre", "Dirección", "Teléfono", "Estado"),
+            (40, 180, 200, 120, 80))
+
+        def _refresh_pos_list():
+            self._pos_tree.delete(*self._pos_tree.get_children())
+            for loc in self.db.get_locations(active_only=False):
+                status = "✅ Activo" if loc["active"] else "❌ Inactivo"
+                self._pos_tree.insert("", "end", values=(
+                    loc["id"], loc["name"], loc.get("address", ""),
+                    loc.get("phone", ""), status))
+        _refresh_pos_list()
+
+        # Formulario para nuevo punto de venta
+        new_pos_frame = ctk.CTkFrame(pos_card, fg_color="transparent")
+        new_pos_frame.pack(fill="x", padx=20, pady=(5, 5))
+
+        W_label(new_pos_frame, "Nombre *", size=10, color=DIM).grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4)
+        e_pos_name = W_entry(new_pos_frame, "ej: Sucursal Centro", w=180)
+        e_pos_name.grid(row=0, column=1, sticky="w", pady=4)
+
+        W_label(new_pos_frame, "Dirección", size=10, color=DIM).grid(
+            row=0, column=2, sticky="w", padx=(16, 8), pady=4)
+        e_pos_addr = W_entry(new_pos_frame, w=180)
+        e_pos_addr.grid(row=0, column=3, sticky="w", pady=4)
+
+        W_label(new_pos_frame, "Teléfono", size=10, color=DIM).grid(
+            row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        e_pos_phone = W_entry(new_pos_frame, w=180)
+        e_pos_phone.grid(row=1, column=1, sticky="w", pady=4)
+
+        def _add_pos():
+            name = e_pos_name.get().strip()
+            if not name:
+                messagebox.showerror("Error", "El nombre del punto de venta es obligatorio")
+                return
+            # Verificar que no exista uno con el mismo nombre
+            existing = [l["name"].lower() for l in self.db.get_locations(active_only=False)]
+            if name.lower() in existing:
+                messagebox.showerror("Error", f"Ya existe un punto de venta llamado '{name}'")
+                return
+            self.db.add_location(name, e_pos_addr.get().strip(), e_pos_phone.get().strip())
+            e_pos_name.delete(0, "end")
+            e_pos_addr.delete(0, "end")
+            e_pos_phone.delete(0, "end")
+            _refresh_pos_list()
+            messagebox.showinfo("✅", f"Punto de venta '{name}' creado.\nReinicia la app para verlo en el selector.")
+
+        def _toggle_pos():
+            sel = self._pos_tree.selection()
+            if not sel:
+                messagebox.showinfo("Info", "Selecciona un punto de venta de la lista")
+                return
+            values = self._pos_tree.item(sel[0])["values"]
+            loc_id = values[0]
+            loc_name = values[1]
+            current_status = values[4]
+            if loc_id == 1:
+                messagebox.showwarning("Protegido", "No puedes desactivar el punto de venta Principal")
+                return
+            if "Activo" in str(current_status):
+                if messagebox.askyesno("Confirmar", f"¿Desactivar '{loc_name}'?"):
+                    self.db.del_location(loc_id)
+                    _refresh_pos_list()
+            else:
+                self.db.upd_location(loc_id, loc_name, "", "", 1)
+                _refresh_pos_list()
+
+        pos_btn_row = ctk.CTkFrame(pos_card, fg_color="transparent")
+        pos_btn_row.pack(fill="x", padx=20, pady=(5, 16))
+        W_btn(pos_btn_row, "➕  Agregar Punto de Venta", _add_pos,
+              color=OK, w=220, h=36).pack(side="left")
+        W_btn(pos_btn_row, "🔄  Activar/Desactivar", _toggle_pos,
+              color=CARD2, w=170, h=36).pack(side="left", padx=6)
+
     def _save(self):
         for key, e in self.entries.items():
             self.db.set_cfg(key, e.get().strip())
@@ -3116,6 +3608,139 @@ class ConfigPanel(BasePanel):
         log.info("Configuración general actualizada")
 
 
+# ═══════════════════════════════════════════════════════════════
+# PANEL ACCESO MÓVIL
+# ═══════════════════════════════════════════════════════════════
+import subprocess, socket, webbrowser
+
+_SERVER_PROC = None
+
+def _get_lan_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+def _is_server_alive(port=8000):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.4)
+        ok = (s.connect_ex(("127.0.0.1", port)) == 0)
+        s.close()
+        return ok
+    except Exception:
+        return False
+
+class MovilPanel(BasePanel):
+    def __init__(self, master, db, user, loc_id=None):
+        super().__init__(master, db, user, loc_id)
+        self.port = 8000
+        self.lan_ip = _get_lan_ip()
+        self.url = f"http://{self.lan_ip}:{self.port}"
+        self._build()
+
+    def _build(self):
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.pack(fill="x", pady=(0, 14))
+        W_label(hdr, "📱 Acceso Móvil y Web", size=18, bold=True).pack(side="left")
+        W_label(hdr, "   Usa GestPro desde cualquier celular o tablet en el navegador", size=10, color=DIM).pack(side="left", pady=6)
+
+        content = ctk.CTkFrame(self, fg_color="transparent")
+        content.pack(fill="both", expand=True)
+
+        left_card = W_card(content)
+        left_card.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        W_label(left_card, "Estado del Servidor Móvil", size=13, bold=True).pack(anchor="w", padx=20, pady=(16, 6))
+        
+        self.lbl_status = W_label(left_card, "", size=12, bold=True)
+        self.lbl_status.pack(anchor="w", padx=20, pady=(0, 10))
+
+        self.lbl_url = W_label(left_card, f"Dirección Web:  {self.url}", size=11, color=ACC)
+        self.lbl_url.pack(anchor="w", padx=20, pady=(0, 16))
+
+        btn_box = ctk.CTkFrame(left_card, fg_color="transparent")
+        btn_box.pack(fill="x", padx=20, pady=(0, 16))
+
+        self.btn_toggle = W_btn(btn_box, "🚀 Iniciar Servidor", self._toggle_server, color=OK, w=160, h=36)
+        self.btn_toggle.pack(side="left", padx=(0, 8))
+
+        self.btn_open = W_btn(btn_box, "🌐 Abrir en PC", lambda: webbrowser.open(self.url), color=ACC, w=140, h=36)
+        self.btn_open.pack(side="left", padx=(0, 8))
+
+        W_sep(left_card)
+
+        W_label(left_card, "📖 ¿Cómo conectar tu celular?", size=12, bold=True).pack(anchor="w", padx=20, pady=(12, 6))
+        steps = [
+            "1. Conecta tu celular a la misma red Wi-Fi de esta computadora.",
+            "2. Abre la cámara de tu celular y apunta al código QR que ves a la derecha.",
+            "3. Toca la notificación que aparece para abrir GestPro en el navegador.",
+            "4. Ingresa con tu usuario y contraseña (ej: admin / admin123).",
+            "5. ¡Listo! Podrás ver analíticas en vivo, meter ventas y controlar caja.",
+            "💡 Consejo: En Safari o Chrome en el celular, presiona 'Agregar a inicio' para usarlo como una app completa."
+        ]
+        for s in steps:
+            W_label(left_card, s, size=10, color=TEXT if "Consejo" in s else DIM, wraplength=_sc(380), justify="left").pack(anchor="w", padx=20, pady=2)
+
+        right_card = W_card(content)
+        right_card.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        W_label(right_card, "📷 Escanear con la Cámara", size=13, bold=True).pack(anchor="center", pady=(16, 10))
+
+        self.qr_label = ctk.CTkLabel(right_card, text="")
+        self.qr_label.pack(expand=True, pady=10)
+        self._render_qr()
+
+        self._update_status_ui()
+
+    def _render_qr(self):
+        try:
+            import qrcode
+            from PIL import Image
+            qr = qrcode.QRCode(box_size=6, border=2)
+            qr.add_data(self.url)
+            qr.make(fit=True)
+            pil_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(_sc(220), _sc(220)))
+            self.qr_label.configure(image=ctk_img)
+        except Exception as ex:
+            self.qr_label.configure(text=f"No se pudo generar QR:\n{ex}")
+
+    def _update_status_ui(self):
+        alive = _is_server_alive(self.port)
+        if alive:
+            self.lbl_status.configure(text="🟢 EN EJECUCIÓN (Activo para celulares)", text_color=OK)
+            self.btn_toggle.configure(text="⏹ Detener Servidor", fg_color=ERR, hover_color="#b02a37")
+        else:
+            self.lbl_status.configure(text="🔴 DETENIDO", text_color=ERR)
+            self.btn_toggle.configure(text="🚀 Iniciar Servidor", fg_color=OK, hover_color="#146c43")
+
+    def _toggle_server(self):
+        global _SERVER_PROC
+        alive = _is_server_alive(self.port)
+        if alive:
+            if _SERVER_PROC:
+                try:
+                    _SERVER_PROC.terminate()
+                    _SERVER_PROC = None
+                except Exception:
+                    pass
+            messagebox.showinfo("Servidor", "Servidor detenido.\n(Si fue iniciado externamente por .bat, ciérralo desde la consola).")
+        else:
+            try:
+                base = os.path.dirname(os.path.abspath(__file__))
+                script = os.path.join(base, "web_server.py")
+                _SERVER_PROC = subprocess.Popen([sys.executable, script, "--port", str(self.port)],
+                                                cwd=base, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.after(1000, self._update_status_ui)
+                messagebox.showinfo("Éxito", f"¡Servidor móvil iniciado!\nConecta tu celular a:\n{self.url}")
+            except Exception as ex:
+                messagebox.showerror("Error", f"No se pudo iniciar el servidor:\n{ex}")
+        self._update_status_ui()
 
 
 # ═══════════════════════════════════════════════════════════════
