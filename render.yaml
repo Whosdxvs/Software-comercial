@@ -7,3 +7,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: TURSO_DATABASE_URL
+        value: libsql://gestpro-whosdxvs.aws-us-east-1.turso.io
+      - key: TURSO_AUTH_TOKEN
+        value: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI2MDQxNTgsImlkIjoiMDFhMTVmODctODYwMS03YWVlLWI2MmYtM2I3MzBiMjdiNzNlIiwia2lkIjoia05Vd2ZRbGlPclRNaDJvSGZsb2cxeDZDbkVPR3R2amdUUmdBeUVuczItayIsInJpZCI6IjU5MTViMjY4LTE5OTAtNDg3Ny05NjA4LTgzMzgxOTczYTU3NSJ9.4p-Qr5fTaDD126S5ha8f2eV48qcwdGtZCk1wsZIYeeMQdv9v3nCMO22F7Oweu8T0a4dE0DjgZnu4dROoFhrdDg

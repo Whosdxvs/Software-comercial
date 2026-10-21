@@ -41,8 +41,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "GestPro.db"))
 WEB_DIR = os.path.join(BASE_DIR, "web")
 
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+
 def get_db():
-    """Retorna una conexión a SQLite optimizada para concurrencia."""
+    """Retorna conexión a Turso Cloud si está configurado, o a SQLite local por defecto."""
+    if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
+        try:
+            from turso_db import TursoConnection
+            return TursoConnection(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+        except Exception as e:
+            print(f"[Aviso] No se pudo conectar a Turso ({e}), usando base local.")
+            
     con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10.0)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode = WAL")
