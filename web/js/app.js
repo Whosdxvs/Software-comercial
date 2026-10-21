@@ -672,7 +672,22 @@ class GestProApp {
     this.cartDiscount = Number(discInput ? discInput.value : 0) || 0;
 
     const subtotal = this.cart.reduce((s, i) => s + i.subtotal, 0);
-    const total = Math.max(0, subtotal - this.cartDiscount);
+    const baseAfterDisc = Math.max(0, subtotal - this.cartDiscount);
+
+    const rappiRow = document.getElementById("cart-rappi-row");
+    const rappiVal = document.getElementById("cart-rappi-val");
+
+    let total = baseAfterDisc;
+    if (this.paymentMethod === "rappi") {
+      const rappiComm = Math.round(baseAfterDisc * 0.14);
+      total = Math.max(0, baseAfterDisc - rappiComm);
+      if (rappiRow) {
+        rappiRow.style.display = "flex";
+        if (rappiVal) rappiVal.textContent = `-${this.fmt(rappiComm)}`;
+      }
+    } else {
+      if (rappiRow) rappiRow.style.display = "none";
+    }
 
     document.getElementById("cart-subtotal").textContent = this.fmt(subtotal);
     document.getElementById("cart-discount-val").textContent = this.fmt(this.cartDiscount);
@@ -691,6 +706,7 @@ class GestProApp {
     if (cashBox) {
       cashBox.style.display = method === "efectivo" ? "block" : "none";
     }
+    this.updateCartTotals();
   }
 
   renderQuickCashChips(total) {
@@ -725,7 +741,11 @@ class GestProApp {
 
   calcChange() {
     const subtotal = this.cart.reduce((s, i) => s + i.subtotal, 0);
-    const total = Math.max(0, subtotal - this.cartDiscount);
+    const baseAfterDisc = Math.max(0, subtotal - this.cartDiscount);
+    let total = baseAfterDisc;
+    if (this.paymentMethod === "rappi") {
+      total = Math.max(0, baseAfterDisc - Math.round(baseAfterDisc * 0.14));
+    }
     const recInput = document.getElementById("cash-received-input");
     const rec = Number(recInput ? recInput.value : 0) || 0;
 
@@ -747,6 +767,14 @@ class GestProApp {
       return;
     }
 
+    // Si el pago es Rappi, sumar la comisión (14%) al descuento efectivo
+    const subtotalCart = this.cart.reduce((s, i) => s + i.subtotal, 0);
+    let effectiveDiscount = this.cartDiscount;
+    if (this.paymentMethod === "rappi") {
+      const rappiComm = Math.round(Math.max(0, subtotalCart - this.cartDiscount) * 0.14);
+      effectiveDiscount = this.cartDiscount + rappiComm;
+    }
+
     const payload = {
       client_id: clientId,
       items: this.cart.map(i => ({
@@ -756,7 +784,7 @@ class GestProApp {
         unit_price: i.unit_price,
         subtotal: i.subtotal
       })),
-      discount: this.cartDiscount,
+      discount: effectiveDiscount,
       payment_method: this.paymentMethod,
       notes: "Venta desde celular"
     };

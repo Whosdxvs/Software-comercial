@@ -527,6 +527,10 @@
             <span>Descuento:</span>
             <span id="cart-discount-val">$ 0</span>
           </div>
+          <div id="cart-rappi-row" class="flex-between text-warning text-sm" style="display: none;">
+            <span>Comisión Rappi (14%):</span>
+            <span id="cart-rappi-val">-$ 0</span>
+          </div>
           <div class="flex-between cart-grand-total">
             <span>TOTAL:</span>
             <span id="cart-total-val" class="text-success">$ 0</span>
@@ -539,6 +543,7 @@
           <button class="pay-tab active" data-method="efectivo" onclick="app.setPaymentMethod('efectivo', this)">💵 Efectivo</button>
           <button class="pay-tab" data-method="transferencia" onclick="app.setPaymentMethod('transferencia', this)">📱 Transferencia</button>
           <button class="pay-tab" data-method="tarjeta" onclick="app.setPaymentMethod('tarjeta', this)">💳 Tarjeta</button>
+          <button class="pay-tab" data-method="rappi" onclick="app.setPaymentMethod('rappi', this)">🛵 Rappi</button>
           <button class="pay-tab" data-method="crédito" onclick="app.setPaymentMethod('crédito', this)">⏳ Crédito</button>
         </div>
 
