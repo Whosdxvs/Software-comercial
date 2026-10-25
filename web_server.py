@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-GestPro Móvil & Web Server
-Servidor HTTP / REST API para acceso móvil y web a GestPro Comercial.
+GestPro MÃ³vil & Web Server
+Servidor HTTP / REST API para acceso mÃ³vil y web a GestPro Comercial.
 Compatible al 100% con la base de datos GestPro.db.
 """
 
@@ -13,8 +13,15 @@ import hashlib
 import json
 import base64
 import io
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional, List, Dict, Any
+
+# Zona horaria local: UTC-5 (Colombia / Venezuela / Ecuador / PerÃº)
+TZ_LOCAL = timezone(timedelta(hours=-5))
+
+def local_now() -> datetime:
+    """Retorna la hora actual en la zona horaria local (UTC-5)."""
+    return datetime.now(timezone.utc).astimezone(TZ_LOCAL).replace(tzinfo=None)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Query, status
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -24,7 +31,7 @@ from pydantic import BaseModel
 import uvicorn
 import qrcode
 
-# Asegurar codificación UTF-8 en consola de Windows
+# Asegurar codificaciÃ³n UTF-8 en consola de Windows
 if hasattr(sys.stdout, 'reconfigure'):
     try:
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -36,7 +43,7 @@ if hasattr(sys.stderr, 'reconfigure'):
     except Exception:
         pass
 
-# ── Configuración de Rutas y Base de Datos ─────────────────────
+# â”€â”€ ConfiguraciÃ³n de Rutas y Base de Datos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "GestPro.db"))
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -45,7 +52,7 @@ TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
 def get_db():
-    """Retorna conexión a Turso Cloud si está configurado, o a SQLite local por defecto."""
+    """Retorna conexiÃ³n a Turso Cloud si estÃ¡ configurado, o a SQLite local por defecto."""
     if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
         try:
             from turso_db import TursoConnection
@@ -186,7 +193,7 @@ def init_db_schema():
                 ("admin", hash_pw("admin123"), "admin")
             )
             con.execute("INSERT OR IGNORE INTO pos_locations(name, address, phone) VALUES('Principal', '', '')")
-            for cat in ["General", "Electrónica", "Ropa", "Alimentos", "Hogar", "Bebidas", "Salud"]:
+            for cat in ["General", "ElectrÃ³nica", "Ropa", "Alimentos", "Hogar", "Bebidas", "Salud"]:
                 con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (cat,))
             con.commit()
 
@@ -220,14 +227,14 @@ def init_db_schema():
     finally:
         con.close()
 
-# Ejecutar inicialización al cargar
+# Ejecutar inicializaciÃ³n al cargar
 try:
     init_db_schema()
 except Exception as e:
     print("Aviso al inicializar base de datos:", e)
 
 def get_lan_ip() -> str:
-    """Detecta la IP local de la máquina en la red Wi-Fi / LAN."""
+    """Detecta la IP local de la mÃ¡quina en la red Wi-Fi / LAN."""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -240,10 +247,10 @@ def get_lan_ip() -> str:
 def hash_pw(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
-# ── Inicializar FastAPI ────────────────────────────────────────
+# â”€â”€ Inicializar FastAPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app = FastAPI(
-    title="GestPro Móvil API",
-    description="Backend web y móvil para el sistema GestPro",
+    title="GestPro MÃ³vil API",
+    description="Backend web y mÃ³vil para el sistema GestPro",
     version="2.0.0"
 )
 
@@ -255,7 +262,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Modelos Pydantic ──────────────────────────────────────────
+# â”€â”€ Modelos Pydantic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -338,11 +345,11 @@ class ExpenseCreateRequest(BaseModel):
 class CategoryCreateRequest(BaseModel):
     name: str
 
-# ── Helper de Autenticación Básica ────────────────────────────
+# â”€â”€ Helper de AutenticaciÃ³n BÃ¡sica â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def get_current_user_from_header(request: Request) -> Dict[str, Any]:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        # Permitir fallback a usuario admin por defecto si no hay token o si se usa sesión rápida
+        # Permitir fallback a usuario admin por defecto si no hay token o si se usa sesiÃ³n rÃ¡pida
         con = get_db()
         user = con.execute("SELECT id, username, role FROM users WHERE active=1 ORDER BY id LIMIT 1").fetchone()
         con.close()
@@ -360,11 +367,11 @@ def get_current_user_from_header(request: Request) -> Dict[str, Any]:
             raise HTTPException(status_code=401, detail="Usuario no encontrado o inactivo")
         return dict(user)
     except Exception:
-        raise HTTPException(status_code=401, detail="Token inválido")
+        raise HTTPException(status_code=401, detail="Token invÃ¡lido")
 
-# ═══════════════════════════════════════════════════════════════
-# RUTAS API: AUTENTICACIÓN
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# RUTAS API: AUTENTICACIÃ“N
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
     u = req.username.strip().lower()
@@ -374,7 +381,7 @@ def login(req: LoginRequest):
                       (u, hash_pw(p))).fetchone()
     con.close()
     if not row:
-        raise HTTPException(status_code=400, detail="Usuario o contraseña incorrectos")
+        raise HTTPException(status_code=400, detail="Usuario o contraseÃ±a incorrectos")
     user_dict = dict(row)
     token = base64.b64encode(json.dumps(user_dict).encode("utf-8")).decode("utf-8")
     return {"token": token, "user": user_dict}
@@ -383,9 +390,9 @@ def login(req: LoginRequest):
 def me(user: Dict[str, Any] = Depends(get_current_user_from_header)):
     return {"user": user}
 
-# ═══════════════════════════════════════════════════════════════
-# RUTAS API: CONFIGURACIÓN & ESTADO
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# RUTAS API: CONFIGURACIÃ“N & ESTADO
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/config")
 def get_config():
     con = get_db()
@@ -422,12 +429,12 @@ def get_network_info(port: int = 8000):
         "port": port,
         "url": url,
         "qr_base64": qr_b64,
-        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "server_time": local_now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
-# ═══════════════════════════════════════════════════════════════
-# RUTAS API: DASHBOARD & ANALÍTICAS
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# RUTAS API: DASHBOARD & ANALÃTICAS
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/dashboard/stats")
 def get_dashboard_stats(
     start_date: Optional[str] = None,
@@ -509,19 +516,19 @@ def get_dashboard_charts(
     
     con = get_db()
     
-    # Ventas por día
+    # Ventas por dÃ­a
     sales_days = con.execute(
         "SELECT date, COALESCE(SUM(total),0) rev, COUNT(*) cnt FROM sales WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date",
         (d1, d2)
     ).fetchall()
     
-    # Ventas por método de pago
+    # Ventas por mÃ©todo de pago
     sales_payments = con.execute(
         "SELECT payment_method pm, COALESCE(SUM(total),0) total, COUNT(*) cnt FROM sales WHERE date BETWEEN ? AND ? GROUP BY payment_method",
         (d1, d2)
     ).fetchall()
     
-    # Ventas por categoría
+    # Ventas por categorÃ­a
     sales_cats = con.execute(
         """SELECT COALESCE(p.category, 'General') cat, SUM(si.subtotal) rev, SUM(si.quantity) qty
            FROM sale_items si JOIN sales s ON si.sale_id = s.id
@@ -531,7 +538,7 @@ def get_dashboard_charts(
         (d1, d2)
     ).fetchall()
     
-    # Top 10 productos más vendidos
+    # Top 10 productos mÃ¡s vendidos
     top_prods = con.execute(
         """SELECT si.product_name pname, SUM(si.quantity) qty, SUM(si.subtotal) rev
            FROM sale_items si JOIN sales s ON si.sale_id = s.id
@@ -549,9 +556,9 @@ def get_dashboard_charts(
         "top_products": [dict(r) for r in top_prods]
     }
 
-# ═══════════════════════════════════════════════════════════════
-# RUTAS API: PRODUCTOS & CATEGORÍAS
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# RUTAS API: PRODUCTOS & CATEGORÃAS
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/products")
 def get_products(
     search: Optional[str] = "",
@@ -578,7 +585,7 @@ def get_products(
     
     rows = con.execute(q, p).fetchall()
     
-    # Total de productos que cumplen la condición
+    # Total de productos que cumplen la condiciÃ³n
     count_q = "SELECT COUNT(*) cnt FROM products WHERE active=1"
     cp = []
     if search:
@@ -705,7 +712,7 @@ def get_categories():
 def create_category(req: CategoryCreateRequest):
     name = req.name.strip()
     if not name:
-        raise HTTPException(status_code=400, detail="El nombre de la categoría es obligatorio")
+        raise HTTPException(status_code=400, detail="El nombre de la categorÃ­a es obligatorio")
     con = get_db()
     try:
         cur = con.execute("INSERT OR IGNORE INTO categories(name) VALUES(?)", (name,))
@@ -715,9 +722,9 @@ def create_category(req: CategoryCreateRequest):
         con.close()
     return {"id": cat_id, "name": name}
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # RUTAS API: CLIENTES
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/clients")
 def get_clients(search: Optional[str] = ""):
     con = get_db()
@@ -764,18 +771,18 @@ def add_client_payment(
         con.close()
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
         
-    # Buscar sesión de caja abierta
+    # Buscar sesiÃ³n de caja abierta
     sess = con.execute("SELECT id FROM cash_sessions WHERE status='open' ORDER BY id DESC LIMIT 1").fetchone()
     sess_id = sess["id"] if sess else None
     
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = local_now().strftime("%Y-%m-%d %H:%M:%S")
     con.execute(
         "INSERT INTO client_payments(client_id, user_id, session_id, amount, notes, timestamp) VALUES(?,?,?,?,?,?)",
         (id, user["id"], sess_id, req.amount, req.notes or "", now_str)
     )
     con.execute("UPDATE clients SET debt = debt - ? WHERE id=?", (req.amount, id))
     
-    # Si hay sesión de caja abierta, registrar ingreso
+    # Si hay sesiÃ³n de caja abierta, registrar ingreso
     if sess_id:
         desc = f"Abono cliente: {client['name']}"
         if req.notes:
@@ -789,13 +796,13 @@ def add_client_payment(
     con.close()
     return dict(updated_client)
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # RUTAS API: CAJA (SESIONES & ARQUEO)
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/cash/current")
 def get_current_cash(user: Dict[str, Any] = Depends(get_current_user_from_header)):
     con = get_db()
-    # Buscar sesión abierta del usuario actual o la más reciente activa
+    # Buscar sesiÃ³n abierta del usuario actual o la mÃ¡s reciente activa
     sess = con.execute(
         "SELECT cs.*, u.username uname FROM cash_sessions cs LEFT JOIN users u ON cs.user_id=u.id WHERE cs.status='open' ORDER BY cs.id DESC LIMIT 1"
     ).fetchone()
@@ -810,7 +817,7 @@ def get_current_cash(user: Dict[str, Any] = Depends(get_current_user_from_header
         "SELECT COALESCE(SUM(total),0) v, COUNT(*) c FROM sales WHERE session_id=? AND payment_method='efectivo'",
         (sid,)
     ).fetchone()
-    # Ventas por otros métodos
+    # Ventas por otros mÃ©todos
     other_s = con.execute(
         "SELECT COALESCE(SUM(total),0) v, COUNT(*) c FROM sales WHERE session_id=? AND payment_method!='efectivo'",
         (sid,)
@@ -865,12 +872,12 @@ def open_cash(
     active = con.execute("SELECT id FROM cash_sessions WHERE status='open' LIMIT 1").fetchone()
     if active:
         con.close()
-        raise HTTPException(status_code=400, detail="Ya existe una sesión de caja abierta.")
+        raise HTTPException(status_code=400, detail="Ya existe una sesiÃ³n de caja abierta.")
     
     loc = con.execute("SELECT id FROM pos_locations WHERE active=1 ORDER BY id LIMIT 1").fetchone()
     loc_id = loc["id"] if loc else None
     
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = local_now().strftime("%Y-%m-%d %H:%M:%S")
     cur = con.execute(
         "INSERT INTO cash_sessions(user_id, location_id, opened_at, initial_cash, status) VALUES(?,?,?,?,?)",
         (user["id"], loc_id, now_str, float(req.initial_cash), "open")
@@ -878,7 +885,7 @@ def open_cash(
     sid = cur.lastrowid
     con.commit()
     con.close()
-    return {"message": "Caja abierta con éxito", "session_id": sid}
+    return {"message": "Caja abierta con Ã©xito", "session_id": sid}
 
 @app.post("/api/cash/close")
 def close_cash(
@@ -889,7 +896,7 @@ def close_cash(
     sess = con.execute("SELECT * FROM cash_sessions WHERE status='open' ORDER BY id DESC LIMIT 1").fetchone()
     if not sess:
         con.close()
-        raise HTTPException(status_code=400, detail="No hay ninguna sesión de caja abierta para cerrar.")
+        raise HTTPException(status_code=400, detail="No hay ninguna sesiÃ³n de caja abierta para cerrar.")
     
     sid = sess["id"]
     cash_s = con.execute(
@@ -907,7 +914,7 @@ def close_cash(
     
     expected = float(sess["initial_cash"]) + float(cash_s["v"]) + float(inc["v"]) - float(out["v"])
     diff = float(req.actual_cash) - expected
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = local_now().strftime("%Y-%m-%d %H:%M:%S")
     
     con.execute(
         """UPDATE cash_sessions SET closed_at=?, actual_cash=?, expected_cash=?, difference=?, notes=?, status='closed'
@@ -932,36 +939,36 @@ def add_cash_movement(
     if req.amount <= 0:
         raise HTTPException(status_code=400, detail="El monto debe ser superior a 0")
     if req.type not in ("income", "outcome"):
-        raise HTTPException(status_code=400, detail="El tipo de transacción debe ser 'income' o 'outcome'")
+        raise HTTPException(status_code=400, detail="El tipo de transacciÃ³n debe ser 'income' o 'outcome'")
         
     con = get_db()
     sess = con.execute("SELECT id FROM cash_sessions WHERE status='open' ORDER BY id DESC LIMIT 1").fetchone()
     if not sess:
         con.close()
-        raise HTTPException(status_code=400, detail="No hay una sesión de caja abierta")
+        raise HTTPException(status_code=400, detail="No hay una sesiÃ³n de caja abierta")
     
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str = local_now().strftime("%Y-%m-%d %H:%M:%S")
     con.execute(
         "INSERT INTO cash_transactions(session_id, type, amount, description, timestamp) VALUES(?,?,?,?,?)",
         (sess["id"], req.type, float(req.amount), req.description.strip(), now_str)
     )
     con.commit()
     con.close()
-    return {"message": "Movimiento registrado con éxito"}
+    return {"message": "Movimiento registrado con Ã©xito"}
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # RUTAS API: VENTAS & POS
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.post("/api/sales")
 def create_sale(
     req: CreateSaleRequest,
     user: Dict[str, Any] = Depends(get_current_user_from_header)
 ):
     if not req.items:
-        raise HTTPException(status_code=400, detail="El carrito de venta no puede estar vacío")
+        raise HTTPException(status_code=400, detail="El carrito de venta no puede estar vacÃ­o")
         
     con = get_db()
-    # Buscar sesión de caja abierta
+    # Buscar sesiÃ³n de caja abierta
     sess = con.execute("SELECT id FROM cash_sessions WHERE status='open' ORDER BY id DESC LIMIT 1").fetchone()
     session_id = sess["id"] if sess else None
     
@@ -969,7 +976,7 @@ def create_sale(
     loc = con.execute("SELECT id FROM pos_locations WHERE active=1 ORDER BY id LIMIT 1").fetchone()
     loc_id = loc["id"] if loc else None
     
-    now = datetime.now()
+    now = local_now()
     subtotal = sum(i.subtotal for i in req.items)
     discount = float(req.discount or 0)
     total = max(0.0, subtotal - discount)
@@ -998,8 +1005,8 @@ def create_sale(
                 (loc_id, item.product_id, -item.quantity, item.quantity)
             )
             
-    # Si es a crédito, aumentar la deuda del cliente
-    if req.payment_method == "crédito" and req.client_id:
+    # Si es a crÃ©dito, aumentar la deuda del cliente
+    if req.payment_method == "crÃ©dito" and req.client_id:
         con.execute("UPDATE clients SET debt = debt + ? WHERE id=?", (total, req.client_id))
         
     con.commit()
@@ -1021,7 +1028,7 @@ def create_sale(
         "items_count": len(req.items),
         "business_name": b_name,
         "session_id": session_id,
-        "message": "Venta registrada con éxito"
+        "message": "Venta registrada con Ã©xito"
     }
 
 @app.get("/api/sales")
@@ -1098,8 +1105,8 @@ def cancel_sale(
                     (loc_id, i["product_id"], i["quantity"], i["quantity"])
                 )
                 
-    # Si fue a crédito, rebajar la deuda
-    if sale["payment_method"] == "crédito" and sale["client_id"]:
+    # Si fue a crÃ©dito, rebajar la deuda
+    if sale["payment_method"] == "crÃ©dito" and sale["client_id"]:
         con.execute("UPDATE clients SET debt = MAX(0, debt - ?) WHERE id=?", (sale["total"], sale["client_id"]))
         
     con.execute("DELETE FROM sales WHERE id=?", (id,))
@@ -1107,9 +1114,9 @@ def cancel_sale(
     con.close()
     return {"message": f"Venta #{id} anulada correctamente y stock devuelto"}
 
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # RUTAS API: GASTOS
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 @app.get("/api/expenses")
 def get_expenses(
     start_date: Optional[str] = None,
@@ -1146,7 +1153,7 @@ def create_expense(
     loc = con.execute("SELECT id FROM pos_locations WHERE active=1 ORDER BY id LIMIT 1").fetchone()
     loc_id = loc["id"] if loc else None
     
-    now = datetime.now()
+    now = local_now()
     cur = con.execute(
         """INSERT INTO expenses(user_id, session_id, location_id, date, category, amount, description, timestamp)
            VALUES(?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -1155,7 +1162,7 @@ def create_expense(
     )
     eid = cur.lastrowid
     
-    # Si afecta caja y hay sesión abierta, registrar la salida
+    # Si afecta caja y hay sesiÃ³n abierta, registrar la salida
     if session_id:
         desc = f"Gasto: {req.category.strip()}"
         if req.description:
@@ -1169,9 +1176,9 @@ def create_expense(
     con.close()
     return {"id": eid, "message": "Gasto registrado correctamente"}
 
-# ═══════════════════════════════════════════════════════════════
-# SERVIR FRONTEND ESTÁTICO & PWA
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# SERVIR FRONTEND ESTÃTICO & PWA
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Montar carpeta web si existe
 if os.path.isdir(WEB_DIR):
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
@@ -1181,7 +1188,7 @@ def index_page():
     index_path = os.path.join(WEB_DIR, "index.html")
     if os.path.isfile(index_path):
         return FileResponse(index_path)
-    return HTMLResponse("<h2>GestPro Móvil: Carpeta web no encontrada.</h2>")
+    return HTMLResponse("<h2>GestPro MÃ³vil: Carpeta web no encontrada.</h2>")
 
 @app.get("/manifest.json")
 def get_manifest():
@@ -1190,9 +1197,9 @@ def get_manifest():
         return FileResponse(manifest_path, media_type="application/json")
     return JSONResponse({})
 
-# ═══════════════════════════════════════════════════════════════
-# EJECUCIÓN PRINCIPAL CON BANNER Y QR
-# ═══════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# EJECUCIÃ“N PRINCIPAL CON BANNER Y QR
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def print_banner(host: str, port: int):
     lan_ip = get_lan_ip()
     local_url = f"http://localhost:{port}"
@@ -1222,7 +1229,7 @@ def print_banner(host: str, port: int):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="GestPro Móvil Web Server")
+    parser = argparse.ArgumentParser(description="GestPro MÃ³vil Web Server")
     default_port = int(os.environ.get("PORT", 8000))
     parser.add_argument("--port", type=int, default=default_port, help=f"Puerto de escucha (default: {default_port})")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host IP (default: 0.0.0.0)")
@@ -1238,3 +1245,4 @@ if __name__ == "__main__":
         
     print_banner(args.host, args.port)
     uvicorn.run("web_server:app", host=args.host, port=args.port, reload=False, log_level="warning")
+
