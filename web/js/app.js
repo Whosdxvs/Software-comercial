@@ -489,6 +489,10 @@ class GestProApp {
   }
 
   selectStockFilter(filter, btn) {
+    if (typeof window.setStockFilter === "function") {
+      window.setStockFilter(filter, btn);
+      return;
+    }
     this.stockFilter = filter;
     document.querySelectorAll("#pos-stock-chips .cat-chip").forEach(c => c.classList.remove("active"));
     if (btn) btn.classList.add("active");
@@ -501,17 +505,18 @@ class GestProApp {
     const clearBtn = document.getElementById("btn-clear-pos-search");
     if (clearBtn) clearBtn.style.display = term ? "block" : "none";
 
-    this.filteredProducts = this.products.filter(p => {
-      const matchCat = this.selectedCategory === "Todas" || p.category === this.selectedCategory;
+    this.filteredProducts = (this.products || []).filter(p => {
+      const matchCat = !this.selectedCategory || this.selectedCategory === "Todas" || p.category === this.selectedCategory;
       const matchText = !term ||
-        p.name.toLowerCase().includes(term) ||
+        (p.name && p.name.toLowerCase().includes(term)) ||
         String(p.sku || "").includes(term) ||
-        (p.barcode && p.barcode.toLowerCase().includes(term));
+        (p.barcode && String(p.barcode).toLowerCase().includes(term));
       const stock = Number(p.stock) || 0;
+      const sf = this.stockFilter || "en_stock";
       const matchStock =
-        this.stockFilter === "todos" ? true :
-        this.stockFilter === "en_stock" ? stock > 0 :
-        this.stockFilter === "agotados" ? stock <= 0 : true;
+        sf === "todos" ? true :
+        sf === "en_stock" ? stock > 0 :
+        sf === "agotados" ? stock <= 0 : true;
       return matchCat && matchText && matchStock;
     });
 

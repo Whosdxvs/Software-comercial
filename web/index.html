@@ -22,7 +22,7 @@
   <!-- html5-qrcode para escanear código de barras con la cámara -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
-  <link rel="stylesheet" href="/static/css/styles.css">
+  <link rel="stylesheet" href="/static/css/styles.css?v=20261024_04">
 </head>
 <body class="dark-theme">
 
@@ -229,9 +229,9 @@
             <button class="cat-chip active" onclick="app.selectPosCategory('Todas', this)">Todas</button>
           </div>
           <div class="stock-chips" id="pos-stock-chips">
-            <button class="cat-chip" onclick="app.selectStockFilter('todos', this)">Todos</button>
-            <button class="cat-chip active" onclick="app.selectStockFilter('en_stock', this)">En stock</button>
-            <button class="cat-chip" onclick="app.selectStockFilter('agotados', this)">Agotados</button>
+            <button type="button" class="cat-chip" onclick="setStockFilter('todos', this)">Todos</button>
+            <button type="button" class="cat-chip active" onclick="setStockFilter('en_stock', this)">En stock</button>
+            <button type="button" class="cat-chip" onclick="setStockFilter('agotados', this)">Agotados</button>
           </div>
         </div>
 
@@ -921,23 +921,47 @@
   <!-- Toast de Notificaciones Flotantes -->
   <div id="toast-container" class="toast-container"></div>
 
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=20261024_04"></script>
   <script>
+    // Manejo global del filtro de stock (garantiza respuesta instantánea al clic)
+    function setStockFilter(filter, btn) {
+      try {
+        var chips = document.querySelectorAll("#pos-stock-chips .cat-chip");
+        chips.forEach(function(c) { c.classList.remove("active"); });
+        if (btn) btn.classList.add("active");
+
+        if (window.app) {
+          window.app.stockFilter = filter;
+          if (typeof window.app.filterPosProducts === "function") {
+            window.app.filterPosProducts();
+          }
+        }
+      } catch (err) {
+        console.error("Error setting stock filter:", err);
+      }
+    }
+
+    // Reloj digital en vivo en el encabezado
     (function() {
       var DAYS  = ["Dom","Lun","Mar","Mi\u00e9","Jue","Vie","S\u00e1b"];
       var MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
       function tick() {
-        var now  = new Date();
-        var hh   = String(now.getHours()).padStart(2,"0");
-        var mm   = String(now.getMinutes()).padStart(2,"0");
-        var ss   = String(now.getSeconds()).padStart(2,"0");
-        var te   = document.getElementById("clock-time");
-        var de   = document.getElementById("clock-date");
-        if (te) te.textContent = hh + ":" + mm + ":" + ss;
-        if (de) de.textContent = DAYS[now.getDay()] + " " + now.getDate() + " " + MONTHS[now.getMonth()];
+        try {
+          var now  = new Date();
+          var hh   = String(now.getHours()).padStart(2,"0");
+          var mm   = String(now.getMinutes()).padStart(2,"0");
+          var ss   = String(now.getSeconds()).padStart(2,"0");
+          var te   = document.getElementById("clock-time");
+          var de   = document.getElementById("clock-date");
+          if (te) te.textContent = hh + ":" + mm + ":" + ss;
+          if (de) de.textContent = DAYS[now.getDay()] + " " + now.getDate() + " " + MONTHS[now.getMonth()];
+        } catch(e) {
+          console.error("Clock error:", e);
+        }
       }
       tick();
       setInterval(tick, 1000);
+      document.addEventListener("DOMContentLoaded", tick);
     })();
   </script>
 </body>
