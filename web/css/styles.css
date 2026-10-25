@@ -133,12 +133,39 @@ h1, h2, h3, h4, strong {
   justify-content: space-between;
   align-items: center;
   padding: 0 16px;
+  position: relative;
 }
 
 .header-left, .header-right {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.header-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#clock-time {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-date {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
 }
 
 .brand-badge {

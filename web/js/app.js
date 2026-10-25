@@ -50,11 +50,32 @@ class GestProApp {
 
   async init() {
     this.bindEvents();
+    this.startClock();
     if (this.token && this.user) {
       this.showApp();
     } else {
       this.showLogin();
     }
+  }
+
+  startClock() {
+    const DAYS = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+    const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    const tick = () => {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mm = String(now.getMinutes()).padStart(2, "0");
+      const ss = String(now.getSeconds()).padStart(2, "0");
+      const dayName = DAYS[now.getDay()];
+      const day = now.getDate();
+      const month = MONTHS[now.getMonth()];
+      const timeEl = document.getElementById("clock-time");
+      const dateEl = document.getElementById("clock-date");
+      if (timeEl) timeEl.textContent = `${hh}:${mm}:${ss}`;
+      if (dateEl) dateEl.textContent = `${dayName} ${day} ${month}`;
+    };
+    tick();
+    setInterval(tick, 1000);
   }
 
   // ── Helper de Peticiones Fetch API ────────────────────────────
