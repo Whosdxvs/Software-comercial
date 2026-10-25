@@ -487,13 +487,19 @@ class GestProApp {
     const clearBtn = document.getElementById("btn-clear-pos-search");
     if (clearBtn) clearBtn.style.display = term ? "block" : "none";
 
+    const stockFilter = (document.getElementById("pos-stock-filter")?.value) || "todos";
+
     this.filteredProducts = this.products.filter(p => {
       const matchCat = this.selectedCategory === "Todas" || p.category === this.selectedCategory;
       const matchText = !term ||
         p.name.toLowerCase().includes(term) ||
         String(p.sku || "").includes(term) ||
         (p.barcode && p.barcode.toLowerCase().includes(term));
-      return matchCat && matchText;
+      const matchStock =
+        stockFilter === "todos" ? true :
+        stockFilter === "en_stock" ? p.stock > 0 :
+        stockFilter === "agotados" ? p.stock <= 0 : true;
+      return matchCat && matchText && matchStock;
     });
 
     this.renderPosProducts();

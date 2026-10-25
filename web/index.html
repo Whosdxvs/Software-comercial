@@ -218,9 +218,16 @@
           </button>
         </div>
 
-        <!-- Filtro por Categorías (Scroll Horizontal) -->
-        <div class="category-chips-bar" id="pos-category-chips">
-          <button class="cat-chip active" onclick="app.selectPosCategory('Todas', this)">Todas</button>
+        <!-- Filtros: Categorías + Stock -->
+        <div class="pos-filters-row">
+          <div class="category-chips-bar" id="pos-category-chips">
+            <button class="cat-chip active" onclick="app.selectPosCategory('Todas', this)">Todas</button>
+          </div>
+          <select id="pos-stock-filter" class="pos-stock-select" onchange="app.filterPosProducts()">
+            <option value="todos">📦 Todos</option>
+            <option value="en_stock" selected>✅ En stock</option>
+            <option value="agotados">❌ Agotados</option>
+          </select>
         </div>
 
         <!-- Cuadrícula de Productos para Tocar -->

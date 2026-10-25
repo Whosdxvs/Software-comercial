@@ -598,15 +598,42 @@ h1, h2, h3, h4, strong {
   cursor: pointer;
 }
 
+.pos-filters-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+}
 .category-chips-bar {
   display: flex;
+  flex: 1;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 8px;
-  margin-bottom: 14px;
+  padding-bottom: 4px;
   scrollbar-width: none;
 }
 .category-chips-bar::-webkit-scrollbar { display: none; }
+.pos-stock-select {
+  flex-shrink: 0;
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 28px 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.2s;
+}
+.pos-stock-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
 .cat-chip {
   padding: 6px 14px;
   background: var(--bg-card);
