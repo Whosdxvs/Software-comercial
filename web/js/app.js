@@ -22,6 +22,7 @@ class GestProApp {
     this.paymentMethod = "efectivo";
     this.cartDiscount = 0;
     this.cashReceived = 0;
+    this.stockFilter = "en_stock"; // filtro por defecto: solo en stock
 
     // Estado de Caja
     this.cashSession = null;
@@ -74,8 +75,13 @@ class GestProApp {
       if (timeEl) timeEl.textContent = `${hh}:${mm}:${ss}`;
       if (dateEl) dateEl.textContent = `${dayName} ${day} ${month}`;
     };
-    tick();
-    setInterval(tick, 1000);
+    // Esperar DOM listo antes de arrancar
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", () => { tick(); setInterval(tick, 1000); });
+    } else {
+      tick();
+      setInterval(tick, 1000);
+    }
   }
 
   // ── Helper de Peticiones Fetch API ────────────────────────────
@@ -475,7 +481,7 @@ class GestProApp {
       this.clients = clients || [];
 
       this.renderCategoryChips();
-      this.renderPosProducts();
+      this.filterPosProducts();
       this.populateClientsSelect();
       this.updateCartFloatingBar();
     } catch (e) {
@@ -503,12 +509,17 @@ class GestProApp {
     this.filterPosProducts();
   }
 
+  selectStockFilter(filter, btn) {
+    this.stockFilter = filter;
+    document.querySelectorAll("#pos-stock-chips .cat-chip").forEach(c => c.classList.remove("active"));
+    if (btn) btn.classList.add("active");
+    this.filterPosProducts();
+  }
+
   filterPosProducts() {
     const term = document.getElementById("pos-search-input").value.trim().toLowerCase();
     const clearBtn = document.getElementById("btn-clear-pos-search");
     if (clearBtn) clearBtn.style.display = term ? "block" : "none";
-
-    const stockFilter = (document.getElementById("pos-stock-filter")?.value) || "todos";
 
     this.filteredProducts = this.products.filter(p => {
       const matchCat = this.selectedCategory === "Todas" || p.category === this.selectedCategory;
@@ -517,9 +528,9 @@ class GestProApp {
         String(p.sku || "").includes(term) ||
         (p.barcode && p.barcode.toLowerCase().includes(term));
       const matchStock =
-        stockFilter === "todos" ? true :
-        stockFilter === "en_stock" ? p.stock > 0 :
-        stockFilter === "agotados" ? p.stock <= 0 : true;
+        this.stockFilter === "todos" ? true :
+        this.stockFilter === "en_stock" ? p.stock > 0 :
+        this.stockFilter === "agotados" ? p.stock <= 0 : true;
       return matchCat && matchText && matchStock;
     });
 
