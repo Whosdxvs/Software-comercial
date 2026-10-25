@@ -922,5 +922,23 @@
   <div id="toast-container" class="toast-container"></div>
 
   <script src="/static/js/app.js"></script>
+  <script>
+    (function() {
+      var DAYS  = ["Dom","Lun","Mar","Mi\u00e9","Jue","Vie","S\u00e1b"];
+      var MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+      function tick() {
+        var now  = new Date();
+        var hh   = String(now.getHours()).padStart(2,"0");
+        var mm   = String(now.getMinutes()).padStart(2,"0");
+        var ss   = String(now.getSeconds()).padStart(2,"0");
+        var te   = document.getElementById("clock-time");
+        var de   = document.getElementById("clock-date");
+        if (te) te.textContent = hh + ":" + mm + ":" + ss;
+        if (de) de.textContent = DAYS[now.getDay()] + " " + now.getDate() + " " + MONTHS[now.getMonth()];
+      }
+      tick();
+      setInterval(tick, 1000);
+    })();
+  </script>
 </body>
 </html>
